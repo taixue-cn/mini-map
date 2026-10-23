@@ -35,5 +35,5 @@ jars=[project/'fabric/build/libs/mini-map-client-0.1.0.jar',project/'fabric/buil
 if not os.environ.get('MINIMAP_TEST_OMIT_XAERO'):
  for group,artifact,release in [('xaero.map','xaeroworldmap-fabric-26.3','1.47.1'),('xaero.lib','xaerolib-fabric-26.3','1.8.3')]:jars.append(next(gradle.glob('modules-2/files-2.1/'+group+'/'+artifact+'/'+release+'/*/*.jar')))
 for jar in jars:shutil.copy2(jar,mods/jar.name)
-cmd=[os.environ.get('MINIMAP_TEST_JAVA','java'),'-Xmx1536m','-XX:ActiveProcessorCount=4','-cp',os.pathsep.join(map(str,classpath)),profile['mainClass'],'--username','MiniMapTest','--version',version,'--gameDir',str(run),'--assetsDir',str(gradle/'fabric-loom/assets'),'--assetIndex',version+'-'+info['assetIndex']['id'],'--accessToken','0','--userType','legacy','--width','640','--height','480']
+cmd=[os.environ.get('MINIMAP_TEST_JAVA','java'),'-Xmx1536m','-XX:ActiveProcessorCount=4','-cp',os.pathsep.join(map(str,classpath)),profile['mainClass'],'--username',os.environ.get('MINIMAP_TEST_USERNAME','MiniMapTest'),'--version',version,'--gameDir',str(run),'--assetsDir',str(gradle/'fabric-loom/assets'),'--assetIndex',version+'-'+info['assetIndex']['id'],'--accessToken','0','--userType','legacy','--width','640','--height','480']
 raise SystemExit(subprocess.call(cmd,cwd=run))

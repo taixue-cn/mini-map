@@ -1,7 +1,7 @@
 plugins { id 'net.fabricmc.fabric-loom' version '1.17.21' apply false }
 allprojects {
     group = 'io.github.minimap'
-    version = '0.1.0'
+    version = providers.gradleProperty('releaseVersion').getOrElse('0.1.0')
     repositories { mavenCentral() }
 }
 subprojects {

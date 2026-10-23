@@ -39,10 +39,15 @@ final class XaeroBridge implements MiniMapClient.Bridge {
         synchronized(processor){
             MapRegion region=processor.getLeafMapRegion(Integer.MAX_VALUE,pos.x()>>3,pos.z()>>3,true);if(region==null||region.getLoadState()==1)return;
             synchronized(region.writerThreadPauseSync){
+                if(region.isWritingPaused()||region.getLoadState()==3)return;
                 if(region.getLoadState()==0){
                     if(Boolean.TRUE.equals(region.getSaveExists())){processor.getMapSaveLoad().requestLoad(region,"MiniMap surface");return;}
                     region.setLoadState((byte)2);
+                    region.confirmMetaLoaded();
                 }
+                if(region.getPixelResultBuffer()==null)region.restoreBufferUpdateObjects();
+                region.setLoadState((byte)2);
+                region.registerVisit();
                 MapTileChunk chunk=region.getChunk(pos.x()&7,pos.z()&7);
                 if(chunk!=null){var first=chunk.getTile(0,0);if(first!=null&&first.getBlock(0,0) instanceof ServerMapBlock b&&b.source==data)return;}
                 if(chunk==null){chunk=new MapTileChunk(region,pos.x(),pos.z());region.setChunk(pos.x()&7,pos.z()&7,chunk);}
@@ -55,7 +60,9 @@ final class XaeroBridge implements MiniMapClient.Bridge {
                     }
                     chunk.setLoadState((byte)2);chunk.setHasHadTerrain();chunk.setChanged(true);chunk.setToUpdateBuffers(true);
                     // The original samples live in our portable cache, never as fake block states in Xaero region files.
-                    chunk.unincludeInSave();region.setHasHadTerrain();region.requestRefresh(processor);processor.addToProcess(region);
+                    chunk.unincludeInSave();region.setHasHadTerrain();region.setAllCachePrepared(false);region.setShouldCache(false,"MiniMap update");
+                    chunk.updateBuffers(processor,processor.getWorldBlockTintProvider(),processor.getOverlayManager(),false,processor.getBlockStateShortShapeCache(),new MapUpdateFastConfig(processor));
+                    if(!processor.isProcessed(region))processor.addToProcess(region);
                 }finally{region.popWriterPause();}
             }
         }
@@ -67,7 +74,7 @@ final class XaeroBridge implements MiniMapClient.Bridge {
             var chunk=region.getChunk(pos.x()&7,pos.z()&7);if(chunk==null)return;
             var first=chunk.getTile(0,0);if(first==null||!(first.getBlock(0,0) instanceof ServerMapBlock))return;
             for(int z=0;z<4;z++)for(int x=0;x<4;x++)chunk.setTile(x,z,null,processor.getBlockStateShortShapeCache(),processor);
-            chunk.setToUpdateBuffers(true);chunk.unincludeInSave();region.requestRefresh(processor);processor.addToProcess(region);
+            chunk.setToUpdateBuffers(true);chunk.unincludeInSave();region.setAllCachePrepared(false);region.setShouldCache(false,"MiniMap deletion");processor.addToProcess(region);
         }
     }
 }
