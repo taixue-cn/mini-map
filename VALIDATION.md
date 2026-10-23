@@ -6,6 +6,7 @@ All tests use fresh loopback servers and fresh client directories, never product
 | --- | --- |
 | Paper 1.21.4 build 232, Java 21: production plugin + SPI fixture enable | PASS |
 | Paper 26.3 build 218, Java 25: production plugin + SPI fixture enable | PASS |
+| Paper 1.21.4 + ViaVersion 5.12.1: Fabric 26.3 native tile transfer | PASS |
 | Fabric 26.3, Loader 0.20.1, Xaero World Map 1.47.1: remote tile import | PASS |
 | Native Xaero texture upload and RGB comparison outside vanilla loaded chunks | PASS |
 | Native color/height/light incremental replacement followed by transparent deletion | PASS |
