@@ -23,20 +23,21 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           if [ "$REF_TYPE" = "tag" ]; then
-            ./gradlew build --no-daemon -PreleaseVersion="${REF_NAME#v}"
+            ./gradlew spotlessCheck build --no-daemon -PreleaseVersion="${REF_NAME#v}"
           else
-            ./gradlew build --no-daemon
+            ./gradlew spotlessCheck build --no-daemon
           fi
       - name: Prepare downloadable artifacts
         run: |
           mkdir dist
-          cp paper/build/libs/mini-map-server-*.jar dist/
-          cp provider-api/build/libs/mini-map-provider-api-*.jar dist/
+          cp server/build/libs/mini-map-server-*.jar dist/
+          cp client/build/libs/mini-map-client-*.jar dist/
+          cp server/build/libs/mini-map-provider-api-*.jar dist/
           cd dist
           sha256sum *.jar > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: mini-map-server
+          name: mini-map
           path: dist/*
           if-no-files-found: error
   paper-smoke:
@@ -56,7 +57,7 @@ jobs:
           distribution: temurin
           java-version: '25'
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :paper:jar :paper:fixtureJar --no-daemon
+      - run: ./gradlew :server:jar :server:fixtureJar --no-daemon
       - name: Start isolated Paper server
         env:
           MC_VERSION: ${{ matrix.version }}
@@ -78,7 +79,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: mini-map-server
+          name: mini-map
           path: dist
       - name: Publish GitHub Release
         env:

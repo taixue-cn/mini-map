@@ -1,60 +1,31 @@
-# MiniMap Server
+# MiniMap
 
-Paper plugin for sending pre-rendered surface maps to [MiniMap Client](https://github.com/taixue-cn/mini-map-client) through the Minecraft connection. Public implementation; private object storage belongs behind the provider interface.
+Optional server-provided maps for Xaero World Map. One Kotlin repository, two Gradle modules:
 
-## Compatibility and installation
+- `server`: Paper plugin, provider API, server transport and tests. Paper **1.21.4 / Java 21** and **26.3 / Java 25**.
+- `client`: Fabric client mod, local cache, Xaero integration and tests. Minecraft **26.3 / Java 25**, Xaero World Map **1.47.1**.
 
-- Paper **1.21.4 / Java 21** and **26.3 / Java 25**.
-- Client: Fabric for Minecraft **26.3**, Xaero World Map **1.47.1**, MiniMap Client. Xaero's Minimap can use its normal World Map integration.
-- The server needs BlueMap with completed low-resolution tiles, or another `MapProvider`. MiniMap Server does not generate chunks or start BlueMap renders.
+`shared/src` is compiled into both modules; protocol source has one owner and no duplicated copy. Java is limited to three Sponge Mixin/accessor classes. Kotlin and Kotlin DSL use the official IntelliJ Kotlin style, enforced by Spotless/ktlint and `.editorconfig`.
 
-Download `mini-map-server-*.jar` from Actions or Releases and put it in `plugins/`. Start once to create `plugins/MiniMapServer/config.yml`. Do **not** put the provider API SDK jar in `plugins/`.
+## Install
 
-Keep `server-id` identical across entry addresses for the same logical server. Set `worlds.<name>.id` explicitly when several backends represent the same logical world. Increase `epoch` after restoring/resetting a world; this starts a fresh client cache. Never reuse an identity for unrelated worlds.
+Download the server and client jars from this repository's Actions or Releases. Put `mini-map-server` in Paper's `plugins`, and `mini-map-client` in the Fabric client's `mods`, together with Fabric API, **Fabric Language Kotlin 1.14.1+kotlin.2.4.20 or newer**, and supported Xaero World Map. The provider SDK is for developers; do not install it as a plugin. The Paper jar includes its Kotlin runtime.
 
-```yaml
-server-id: architecture
-bluemap-maps:
-  summer-palace: summer-palace-surface
-worlds:
-  summer-palace:
-    enabled: true
-    id: summer-palace
-    epoch: '1'
-    permission: minimap.world.summer-palace
-```
+The protocol activates after both sides handshake. An absent plugin, absent mod or unsupported Xaero installation leaves normal gameplay available. Only the player's current world can be requested; opening the full-screen map requests visible tiles. Closing the map or changing worlds drops pending responses. Downloaded maps remain in the player's local cache.
 
-`minimap.use` defaults to true. An additional world permission is optional. Requests are authorized against the **connection player's current world** on receipt and again before sending. Changing worlds, losing permission, closing the map, or disconnecting cancels pending work. There is no world list or client-selected world endpoint. Downloaded data remains on the player's computer; permission revocation cannot recall already delivered maps.
+See [server setup and provider API](server/README.md) and [client behavior](client/README.md).
 
-## Providers and custom BlueMap storage
+## Build and release
 
-The built-in adapter selects a BlueMap map by Bukkit world save folder. With multiple BlueMap maps for one world, configure `bluemap-maps` explicitly. It reads standard low-resolution PNG samples through **BlueMap Core's storage interface**, not paths under `web/`. It extracts color, signed height and block light, then resamples the tile boundaries to canonical 64×64 block tiles. Neither SQL nor Redis nor a public HTTP endpoint is required.
-
-BlueMap's public API does **not** guarantee this raster representation. The built-in adapter uses version-sensitive Core methods; incompatible versions/formats fail closed. A private BlueMap fork with a changed PNG format should register a custom provider that reads logical samples *before* its private encoder, or decodes its format internally. Merely using MinIO while preserving the Core interface and standard samples needs no public MiniMap change.
-
-Compile your bridge against `mini-map-provider-api-0.1.0.jar` as **compileOnly**, declare `depend: [MiniMapServer]`, then register:
-
-```java
-getServer().getServicesManager().register(
-    MapProvider.class, myProvider, this, ServicePriority.High);
-```
-
-Implement `resolve(WorldRef)` with cached metadata on the main thread. Implement `read(MapRef, tileX, tileZ)` with committed snapshots on a bounded storage worker. Samples use `index = z * 64 + x`; ARGB alpha zero means missing data; height is a signed 16-bit block Y; light is 0–15. Empty means deleted/absent. Providers are tried in Bukkit service priority order, followed by BlueMap. The same public server jar is used with custom providers; no private MiniMap fork is necessary.
-
-## Transfer and resource limits
-
-Successful handshake establishes a per-world session. Opening the full-screen map requests only the view. SHA-256 covers canonical uncompressed samples. Height deltas and packed light values are lossless; Deflate level 3 is used only if it saves bytes. The client verifies sizes, decompression termination and hash before replacing its cache. Unchanged tiles receive a small status reply; deleted tiles are evicted. Defaults: 128 KiB/s/player, 4 MiB/s globally, four requests in flight per player, 16 KiB fragments, bounded worker queue. Shared tile snapshots expire after two seconds; the client rechecks visible tiles every ten seconds. This is eventual consistency with BlueMap's last committed render.
-
-No guaranteed compression ratio: flat colors compress well, detailed colors less so. Minecraft may also compress packets. A real deployment's wire savings should be measured before adding another codec.
-
-## Build, test, release
-
-Install JDK 25 and run `./gradlew build`. The plugin and SDK target Java 21. `./gradlew :paper:fixtureJar` builds a test-only provider, excluded from releases.
+Use JDK 25:
 
 ```sh
-python3 scripts/paper-smoke.py --version 1.21.4 --java /path/to/java21/bin/java --directory /tmp/minimap-paper-test --accept-eula --fixture
+./gradlew spotlessCheck build
+./gradlew :server:fixtureJar :client:fixtureJar
 ```
 
-Use fresh directories. The test binds loopback and generates an isolated flat world. Read the Minecraft EULA before accepting. `--hold` keeps a test server running for a native client test until `<directory>/stop` exists.
+`./gradlew spotlessApply` formats Kotlin and Kotlin DSL. `kotlin.code.style=official` configures IDE defaults. Comments describe trust boundaries, threading and version-sensitive integration.
 
-`main` pushes and pull requests run the build. Pushing a `v*` tag builds and publishes GitHub Release jars plus SHA-256 checksums. Protocol source is authoritative in this repository; the client vendors an identical versioned copy so both projects build independently.
+`main` pushes and pull requests build both modules and smoke-test Paper 1.21.4 and 26.3. A `v*` tag publishes both jars, the provider SDK and SHA-256 checksums through GitHub Actions Release. Test fixture jars are excluded from releases.
+
+Both former repository histories are retained as ancestors of this monorepo. The v1 wire format and cache hashes remain compatible with the previously released Java alpha. Build paths and provider SDK distribution now belong here.

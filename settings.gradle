@@ -1,3 +1,0 @@
-pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }
-rootProject.name = 'mini-map-server'
-include 'protocol', 'provider-api', 'core', 'paper'

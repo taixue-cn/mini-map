@@ -4,3 +4,9 @@ run/
 .idea/
 *.iml
 .test-runtime/
+
+.kotlin/
+**/build
+
+__pycache__/
+*.pyc

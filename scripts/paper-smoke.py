@@ -17,7 +17,7 @@ a=p.parse_args()
 if not a.accept_eula:p.error('Read https://aka.ms/MinecraftEULA and pass --accept-eula for this isolated test.')
 root=a.directory.resolve();root.mkdir(parents=True,exist_ok=False)
 project=pathlib.Path(__file__).resolve().parents[1]
-def request(url):return urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'MiniMapIntegration/0.1.0 (https://github.com/taixue-cn/mini-map-server)'}),timeout=120).read()
+def request(url):return urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'MiniMapIntegration/0.1.0 (https://github.com/taixue-cn/mini-map)'}),timeout=120).read()
 build=json.loads(request(f'https://fill.papermc.io/v3/projects/paper/versions/{a.version}/builds'))[0]
 asset=build['downloads']['server:default'];body=request(asset['url'])
 assert hashlib.sha256(body).hexdigest()==asset['checksums']['sha256']
@@ -27,8 +27,8 @@ if a.reuse_runtime:
   source=a.reuse_runtime/name
   if source.is_dir():shutil.copytree(source,root/name)
 (root/'plugins').mkdir()
-if not a.without_plugin:shutil.copy2(project/'paper/build/libs/mini-map-server-0.1.0.jar',root/'plugins')
-if a.fixture and not a.without_plugin:shutil.copy2(project/'paper/build/libs/paper-0.1.0-fixture.jar',root/'plugins')
+if not a.without_plugin:shutil.copy2(project/'server/build/libs/mini-map-server-0.1.0.jar',root/'plugins')
+if a.fixture and not a.without_plugin:shutil.copy2(project/'server/build/libs/mini-map-server-0.1.0-fixture.jar',root/'plugins')
 for plugin in a.extra_plugin:shutil.copy2(plugin,root/'plugins'/plugin.name)
 with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
 (root/'eula.txt').write_text('eula=true\n')
