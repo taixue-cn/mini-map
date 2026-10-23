@@ -32,10 +32,16 @@ for lib in profile['libraries']:
  group,name,release=lib['name'].split(':');libraries.append({'url':lib.get('url','https://maven.fabricmc.net/')+group.replace('.','/')+'/'+name+'/'+release+'/'+name+'-'+release+'.jar'})
 with concurrent.futures.ThreadPoolExecutor(8) as pool:classpath=list(pool.map(fetch,libraries))
 classpath.append(gradle/f'fabric-loom/{version}/minecraft-client.jar')
-run=pathlib.Path(os.environ['MINIMAP_TEST_DIRECTORY']);mods=run/'mods';mods.mkdir(parents=True,exist_ok=True)
-jars=[artifact('net.fabricmc','fabric-language-kotlin','1.14.1+kotlin.2.4.20'),project/'client/build/libs/mini-map-client-0.1.0.jar',project/'client/build/libs/mini-map-client-0.1.0-fixture.jar',artifact('net.fabricmc.fabric-api','fabric-api','0.165.0+26.3')]
+run=pathlib.Path(os.environ['MINIMAP_TEST_DIRECTORY'])
+presence=os.environ.get('MINIMAP_TEST_PRESENCE_ONLY')=='true'
+if presence and run.exists() and any(run.iterdir()):raise ValueError('Presence-only capture requires a fresh game directory')
+mods=run/'mods';mods.mkdir(parents=True,exist_ok=True)
+if presence:(run/'options.txt').write_text('onboardAccessibility:false\nskipMultiplayerWarning:true\nrenderDistance:2\nsimulationDistance:2\n')
+jars=[artifact('net.fabricmc','fabric-language-kotlin','1.14.1+kotlin.2.4.20'),project/'client/build/libs/mini-map-client-0.1.0.jar',artifact('net.fabricmc.fabric-api','fabric-api','0.165.0+26.3')]
+if not presence:jars.append(project/'client/build/libs/mini-map-client-0.1.0-fixture.jar')
 if not os.environ.get('MINIMAP_TEST_OMIT_XAERO'):
  for group,artifact,release in [('xaero.map','xaeroworldmap-fabric-26.3','1.47.1'),('xaero.lib','xaerolib-fabric-26.3','1.8.3')]:jars.append(next(gradle.glob('modules-2/files-2.1/'+group+'/'+artifact+'/'+release+'/*/'+artifact+'-'+release+'.jar')))
 for jar in jars:shutil.copy2(jar,mods/jar.name)
 cmd=[os.environ.get('MINIMAP_TEST_JAVA','java'),'-Xmx1536m','-XX:ActiveProcessorCount=4','-cp',os.pathsep.join(map(str,classpath)),profile['mainClass'],'--username',os.environ.get('MINIMAP_TEST_USERNAME','MiniMapTest'),'--version',version,'--gameDir',str(run),'--assetsDir',str(gradle/'fabric-loom/assets'),'--assetIndex',version+'-'+info['assetIndex']['id'],'--accessToken','0','--userType','legacy','--width','640','--height','480']
+if presence:cmd+=['--quickPlayMultiplayer',os.environ['MINIMAP_TEST_SERVER']]
 raise SystemExit(subprocess.call(cmd,cwd=run))
