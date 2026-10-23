@@ -13,7 +13,7 @@ import xaero.map.gui.GuiMap;
 import java.nio.file.*;
 
 public final class ClientFixture implements ClientModInitializer {
-    private long started;private boolean connecting,opened,done;private int ticks;
+    private long started;private boolean connecting,opened,done,initialSeen,changeSeen;private int ticks;
     @Override public void onInitializeClient(){
         started=System.currentTimeMillis();
         ClientTickEvents.END_CLIENT_TICK.register(client->{
@@ -44,12 +44,21 @@ public final class ClientFixture implements ClientModInitializer {
                 Files.writeString(Path.of(System.getenv("MINIMAP_TEST_REPORT")+".debug")," targetTile="+tile+" regionState="+(target==null?"null":target.getLoadState())+" targetBlock="+(tile==null?"null":tile.getBlock(0,0)),StandardOpenOption.APPEND);
                 if(tile==null)return;var block=tile.getBlock(0,0);if(block==null||!block.getClass().getSimpleName().equals("ServerMapBlock"))return;
                 var field=block.getClass().getDeclaredField("source");field.setAccessible(true);TileData data=(TileData)field.get(block);
-                if(data.color(0)!=0xffe04090||data.height(0)!=71||data.light(0)!=12)throw new AssertionError("Surface samples changed");
+                boolean updates="updates".equals(System.getenv("MINIMAP_TEST_MODE"));
+                if(updates){
+                    if(data.color(0)==0xffe04090&&data.height(0)==71&&data.light(0)==12)initialSeen=true;
+                    else if(data.color(0)==0xff30b050&&data.height(0)==72&&data.light(0)==10)changeSeen=true;
+                    else if(data.color(0)!=0)throw new AssertionError("Unexpected updated samples");
+                }else if(data.color(0)!=0xffe04090||data.height(0)!=71||data.light(0)!=12)throw new AssertionError("Surface samples changed");
                 if(client.level.getChunkSource().hasChunk(40,40))throw new AssertionError("Remote tile is inside vanilla loaded chunks");
                 var chunk=processor.getMapChunk(Integer.MAX_VALUE,10,10);
                 Files.writeString(Path.of(System.getenv("MINIMAP_TEST_REPORT")+".debug")," update="+chunk.getToUpdateBuffers()+" uploaded="+chunk.getLeafTexture().isUploaded()+" buffer="+(chunk.getLeafTexture().getDirectColorBuffer()!=null)+" cachePrepared="+target.isAllCachePrepared()+" processing="+processor.isProcessed(target)+" regionPaused="+target.isWritingPaused()+" writerPaused="+processor.isWritingPaused()+" uploadPaused="+processor.isUploadingPaused()+" chunkState="+chunk.getLoadState(),StandardOpenOption.APPEND);
                 if(chunk.getToUpdateBuffers())return;
                 var pixels=chunk.getLeafTexture().getDirectColorBuffer();if(pixels==null||!chunk.getLeafTexture().isUploaded())return;
+                if(updates){
+                    if(!initialSeen||!changeSeen||data.color(0)!=0||pixels.get(3)!=0)return;
+                    finish(client,true,"Native Xaero received initial tile, incremental color/height/light update, then transparent deletion");return;
+                }
                 if((pixels.get(0)&255)!=0xe0||(pixels.get(1)&255)!=0x40||(pixels.get(2)&255)!=0x90)throw new AssertionError("Native texture color differs");
                 finish(client,true,"Remote color, height and light imported into native Xaero tile outside loaded chunks; stable cache identity active");
             }catch(Throwable e){finish(client,false,e.toString());}

@@ -10,6 +10,8 @@ import java.util.*;
 
 final class XaeroBridge implements MiniMapClient.Bridge {
     private final Minecraft client=Minecraft.getInstance();
+    private io.github.minimap.client.CacheIdentity owner;
+    private final Set<TilePos> imported=new HashSet<>();
     private MapProcessor processor(){var session=WorldMapSession.getCurrentSession();return session==null?null:session.getMapProcessor();}
     private boolean current(MapProcessor processor){
         var id=MiniMapClient.identity();return id!=null&&processor!=null&&processor.isMapWorldUsable()&&processor.getCurrentCaveLayer()==Integer.MAX_VALUE
@@ -36,6 +38,7 @@ final class XaeroBridge implements MiniMapClient.Bridge {
     }
     @Override public void tile(TilePos pos,TileData data){
         MapProcessor processor=processor();if(!current(processor))return;
+        if(!Objects.equals(owner,MiniMapClient.identity())){owner=MiniMapClient.identity();imported.clear();}
         synchronized(processor){
             MapRegion region=processor.getLeafMapRegion(Integer.MAX_VALUE,pos.x()>>3,pos.z()>>3,true);if(region==null||region.getLoadState()==1)return;
             synchronized(region.writerThreadPauseSync){
@@ -63,6 +66,7 @@ final class XaeroBridge implements MiniMapClient.Bridge {
                     chunk.unincludeInSave();region.setHasHadTerrain();region.setAllCachePrepared(false);region.setShouldCache(false,"MiniMap update");
                     chunk.updateBuffers(processor,processor.getWorldBlockTintProvider(),processor.getOverlayManager(),false,processor.getBlockStateShortShapeCache(),new MapUpdateFastConfig(processor));
                     if(!processor.isProcessed(region))processor.addToProcess(region);
+                    imported.add(pos);
                 }finally{region.popWriterPause();}
             }
         }
@@ -70,11 +74,12 @@ final class XaeroBridge implements MiniMapClient.Bridge {
     @Override public void missing(TilePos pos){
         MapProcessor processor=processor();if(!current(processor))return;
         var region=processor.getLeafMapRegion(Integer.MAX_VALUE,pos.x()>>3,pos.z()>>3,false);if(region==null)return;
+        boolean clear=false;
         synchronized(region.writerThreadPauseSync){
             var chunk=region.getChunk(pos.x()&7,pos.z()&7);if(chunk==null)return;
-            var first=chunk.getTile(0,0);if(first==null||!(first.getBlock(0,0) instanceof ServerMapBlock))return;
-            for(int z=0;z<4;z++)for(int x=0;x<4;x++)chunk.setTile(x,z,null,processor.getBlockStateShortShapeCache(),processor);
-            chunk.setToUpdateBuffers(true);chunk.unincludeInSave();region.setAllCachePrepared(false);region.setShouldCache(false,"MiniMap deletion");processor.addToProcess(region);
+            var first=chunk.getTile(0,0);
+            clear=(Objects.equals(owner,MiniMapClient.identity())&&imported.contains(pos))||(first!=null&&first.getBlock(0,0) instanceof ServerMapBlock);
         }
+        if(clear)tile(pos,new TileData(new int[4096],new int[4096],new byte[4096]));
     }
 }
