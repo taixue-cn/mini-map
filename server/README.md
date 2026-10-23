@@ -40,6 +40,8 @@ server.servicesManager.register(
 )
 ```
 
+Provider plugins should declare `softdepend: [MiniMapServer]` (or a hard dependency if they require it). MiniMap Server loads before BlueMap; its reflective built-in adapter is resolved lazily, so custom BlueMap providers can depend on the public API without a circular load order.
+
 Implement `resolve(WorldRef)` with cached metadata on the main thread. Implement `read(MapRef, tileX, tileZ)` with committed snapshots on a bounded storage worker. Samples use `index = z * 64 + x`; ARGB alpha zero means missing data; height is a signed 16-bit block Y; light is 0–15. Empty means deleted/absent. Providers are tried in Bukkit service priority order, followed by BlueMap. An authoritative provider stops fallback even when its world is disabled. Implement `available(MapRef)` from a cached policy snapshot to revoke existing sessions before the next send, and `cacheId` for stable logical identity across mounts. The same public server jar is used with custom providers; no private MiniMap fork is necessary.
 
 ## Transfer and resource limits
