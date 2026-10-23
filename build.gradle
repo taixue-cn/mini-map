@@ -1,0 +1,53 @@
+plugins { id 'net.fabricmc.fabric-loom' version '1.17.21' apply false }
+allprojects {
+    group = 'io.github.minimap'
+    version = '0.1.0'
+    repositories { mavenCentral() }
+}
+subprojects {
+    apply plugin: 'java-library'
+    java { toolchain { languageVersion = JavaLanguageVersion.of(25) } }
+    tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+    dependencies {
+        testImplementation platform('org.junit:junit-bom:5.11.4')
+        testImplementation 'org.junit.jupiter:junit-jupiter'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+    test { useJUnitPlatform() }
+}
+project(':protocol') { tasks.withType(JavaCompile).configureEach { options.release = 21 } }
+project(':core') {
+    tasks.withType(JavaCompile).configureEach { options.release = 21 }
+    dependencies { api project(':protocol') }
+}
+project(':fabric') {
+    apply plugin: 'net.fabricmc.fabric-loom'
+    repositories { maven { url = 'https://chocolateminecraft.com/maven/' } }
+    dependencies {
+        minecraft 'com.mojang:minecraft:26.3'
+        implementation 'net.fabricmc:fabric-loader:0.20.1'
+        implementation 'net.fabricmc.fabric-api:fabric-api:0.165.0+26.3'
+        implementation 'xaero.map:xaeroworldmap-fabric-26.3:1.47.1'
+        implementation 'xaero.lib:xaerolib-fabric-26.3:1.8.3'
+        implementation project(':core')
+    }
+    base { archivesName = 'mini-map-client' }
+    jar {
+        dependsOn ':core:classes', ':protocol:classes'
+        from project(':core').sourceSets.main.output
+        from project(':protocol').sourceSets.main.output
+        from rootProject.file('LICENSE')
+    }
+    processResources { filesMatching('fabric.mod.json') { expand(version: project.version) } }
+    sourceSets {
+        fixture {
+            compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
+            runtimeClasspath += sourceSets.main.runtimeClasspath + sourceSets.main.output
+        }
+    }
+    tasks.register('fixtureJar', Jar) {
+        dependsOn fixtureClasses
+        archiveClassifier = 'fixture'
+        from sourceSets.fixture.output
+    }
+}

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "mini_map_client",
+  "version": "${version}",
+  "name": "MiniMap Client",
+  "description": "Optional server map synchronization for Xaero World Map.",
+  "authors": ["taixue-cn"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {"client": ["io.github.minimap.fabric.MiniMapClient"]},
+  "mixins": ["mini-map-client.mixins.json"],
+  "depends": {"fabricloader": ">=0.20.1", "fabric-api": "*", "minecraft": "26.3", "java": ">=25"},
+  "suggests": {"xaeroworldmap": "1.47.1"}
+}
