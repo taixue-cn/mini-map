@@ -1,6 +1,6 @@
 allprojects {
     group = 'io.github.minimap'
-    version = '0.1.0'
+    version = providers.gradleProperty('releaseVersion').getOrElse('0.1.0')
     repositories { mavenCentral(); maven { url = 'https://repo.papermc.io/repository/maven-public/' } }
 }
 subprojects {
@@ -19,7 +19,11 @@ subprojects {
 project(':core') { dependencies { api project(':protocol'); api project(':provider-api') } }
 project(':provider-api') { base { archivesName = 'mini-map-provider-api' } }
 project(':paper') {
-    dependencies { implementation project(':core'); compileOnly 'io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT' }
+    dependencies {
+        implementation project(':core')
+        compileOnly 'io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT'
+        testImplementation 'io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT'
+    }
     jar {
         dependsOn configurations.runtimeClasspath
         archiveBaseName = 'mini-map-server'

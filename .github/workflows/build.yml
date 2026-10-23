@@ -17,7 +17,16 @@ jobs:
           distribution: temurin
           java-version: '25'
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew build --no-daemon
+      - name: Build and test
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" = "tag" ]; then
+            ./gradlew build --no-daemon -PreleaseVersion="${REF_NAME#v}"
+          else
+            ./gradlew build --no-daemon
+          fi
       - name: Prepare downloadable artifacts
         run: |
           mkdir dist
@@ -76,4 +85,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes
+        run: |
+          flags=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes "${flags[@]}"
