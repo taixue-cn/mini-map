@@ -17,7 +17,10 @@ dependencies {
 }
 base { archivesName = "mini-map-client" }
 tasks.jar { from(rootProject.file("LICENSE")) }
-tasks.processResources { filesMatching("fabric.mod.json") { expand("version" to project.version) } }
+tasks.processResources {
+    inputs.property("version", project.version.toString())
+    filesMatching("fabric.mod.json") { expand("version" to project.version) }
+}
 val fixture = sourceSets.create("fixture") {
     compileClasspath += sourceSets.main.get().compileClasspath + sourceSets.main.get().output
     runtimeClasspath += sourceSets.main.get().runtimeClasspath + sourceSets.main.get().output
