@@ -11,6 +11,8 @@ p.add_argument('--fixture',action='store_true')
 p.add_argument('--hold',action='store_true')
 p.add_argument('--updates',action='store_true')
 p.add_argument('--without-plugin',action='store_true')
+p.add_argument('--reuse-runtime',type=pathlib.Path,help='Reuse cache/libraries/versions from an isolated test directory of the same version')
+p.add_argument('--extra-plugin',type=pathlib.Path,action='append',default=[])
 a=p.parse_args()
 if not a.accept_eula:p.error('Read https://aka.ms/MinecraftEULA and pass --accept-eula for this isolated test.')
 root=a.directory.resolve();root.mkdir(parents=True,exist_ok=False)
@@ -20,9 +22,14 @@ build=json.loads(request(f'https://fill.papermc.io/v3/projects/paper/versions/{a
 asset=build['downloads']['server:default'];body=request(asset['url'])
 assert hashlib.sha256(body).hexdigest()==asset['checksums']['sha256']
 (root/'server.jar').write_bytes(body)
+if a.reuse_runtime:
+ for name in ['cache','libraries','versions']:
+  source=a.reuse_runtime/name
+  if source.is_dir():shutil.copytree(source,root/name)
 (root/'plugins').mkdir()
 if not a.without_plugin:shutil.copy2(project/'paper/build/libs/mini-map-server-0.1.0.jar',root/'plugins')
 if a.fixture and not a.without_plugin:shutil.copy2(project/'paper/build/libs/paper-0.1.0-fixture.jar',root/'plugins')
+for plugin in a.extra_plugin:shutil.copy2(plugin,root/'plugins'/plugin.name)
 with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
 (root/'eula.txt').write_text('eula=true\n')
 (root/'server.properties').write_text(f'server-ip=127.0.0.1\nserver-port={port}\nonline-mode=false\nwhite-list=false\nenforce-whitelist=false\nspawn-protection=0\nview-distance=2\nsimulation-distance=2\nlevel-type=minecraft:flat\ngenerate-structures=false\nmax-players=2\n')
