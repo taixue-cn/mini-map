@@ -9,6 +9,8 @@ p.add_argument('--directory',type=pathlib.Path,required=True)
 p.add_argument('--accept-eula',action='store_true')
 p.add_argument('--fixture',action='store_true')
 p.add_argument('--hold',action='store_true')
+p.add_argument('--updates',action='store_true')
+p.add_argument('--without-plugin',action='store_true')
 a=p.parse_args()
 if not a.accept_eula:p.error('Read https://aka.ms/MinecraftEULA and pass --accept-eula for this isolated test.')
 root=a.directory.resolve();root.mkdir(parents=True,exist_ok=False)
@@ -18,13 +20,14 @@ build=json.loads(request(f'https://fill.papermc.io/v3/projects/paper/versions/{a
 asset=build['downloads']['server:default'];body=request(asset['url'])
 assert hashlib.sha256(body).hexdigest()==asset['checksums']['sha256']
 (root/'server.jar').write_bytes(body)
-(root/'plugins').mkdir();shutil.copy2(project/'paper/build/libs/mini-map-server-0.1.0.jar',root/'plugins')
-if a.fixture:shutil.copy2(project/'paper/build/libs/paper-0.1.0-fixture.jar',root/'plugins')
+(root/'plugins').mkdir()
+if not a.without_plugin:shutil.copy2(project/'paper/build/libs/mini-map-server-0.1.0.jar',root/'plugins')
+if a.fixture and not a.without_plugin:shutil.copy2(project/'paper/build/libs/paper-0.1.0-fixture.jar',root/'plugins')
 with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
 (root/'eula.txt').write_text('eula=true\n')
 (root/'server.properties').write_text(f'server-ip=127.0.0.1\nserver-port={port}\nonline-mode=false\nwhite-list=false\nenforce-whitelist=false\nspawn-protection=0\nview-distance=2\nsimulation-distance=2\nlevel-type=minecraft:flat\ngenerate-structures=false\nmax-players=2\n')
 (root/'port').write_text(str(port))
-env=os.environ.copy();env['JAVA_TOOL_OPTIONS']='-XX:ActiveProcessorCount=4'
+env=os.environ.copy();env['JAVA_TOOL_OPTIONS']='-XX:ActiveProcessorCount=4'+(' -Dminimap.fixture.updates=true' if a.updates else '')
 with (root/'console.log').open('w') as log:
  server=subprocess.Popen([a.java,'-Xmx1G','-jar','server.jar','--nogui'],cwd=root,env=env,stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT,text=True)
  try:
@@ -32,7 +35,7 @@ with (root/'console.log').open('w') as log:
   while time.monotonic()<deadline:
    text=(root/'console.log').read_text()
    if server.poll() is not None:raise RuntimeError('Paper exited; inspect console.log')
-   if 'Done (' in text and 'MiniMap Server enabled;' in text and (not a.fixture or 'MINIMAP_FIXTURE_READY' in text):break
+   if 'Done (' in text and (a.without_plugin or ('MiniMap Server enabled;' in text and (not a.fixture or 'MINIMAP_FIXTURE_READY' in text))):break
    time.sleep(.5)
   else:raise TimeoutError('Paper did not become ready')
   print(f'PASS Paper {a.version} build {build["id"]}; loopback port {port}',flush=True)
