@@ -87,6 +87,10 @@ class ClientFixture : ClientModInitializer {
         if (block.javaClass.simpleName != "ServerMapBlock") return
         val data = block.javaClass.getDeclaredField("source").apply { isAccessible = true }.get(block) as TileData
         val updates = System.getenv("MINIMAP_TEST_MODE") == "updates"
+        val customProvider = System.getenv("MINIMAP_TEST_MODE") == "provider"
+        val expectedColor = if (customProvider) System.getenv("MINIMAP_TEST_ARGB").toLong(16).toInt() else 0xffe04090.toInt()
+        val expectedHeight = if (customProvider) System.getenv("MINIMAP_TEST_HEIGHT").toInt() else 71
+        val expectedLight = if (customProvider) System.getenv("MINIMAP_TEST_LIGHT").toByte() else 12.toByte()
         if (updates) {
             when {
                 data.color(0) == 0xffe04090.toInt() && data.height(0) == 71 && data.light(0) == 12.toByte() -> initialSeen = true
@@ -94,7 +98,9 @@ class ClientFixture : ClientModInitializer {
                 data.color(0) != 0 -> error("Unexpected updated samples")
             }
         } else {
-            check(data.color(0) == 0xffe04090.toInt() && data.height(0) == 71 && data.light(0) == 12.toByte()) { "Surface samples changed" }
+            check(data.color(0) == expectedColor && data.height(0) == expectedHeight && data.light(0) == expectedLight) {
+                "Surface samples changed"
+            }
         }
         check(!client.level!!.chunkSource.hasChunk(40, 40)) { "Remote tile is inside vanilla loaded chunks" }
         val chunk = processor.getMapChunk(Int.MAX_VALUE, 10, 10)
@@ -112,7 +118,9 @@ class ClientFixture : ClientModInitializer {
             return
         }
         check(
-            (pixels.get(0).toInt() and 255) == 0xe0 && (pixels.get(1).toInt() and 255) == 0x40 && (pixels.get(2).toInt() and 255) == 0x90,
+            (pixels.get(0).toInt() and 255) == ((expectedColor ushr 16) and 255) &&
+                (pixels.get(1).toInt() and 255) == ((expectedColor ushr 8) and 255) &&
+                (pixels.get(2).toInt() and 255) == (expectedColor and 255),
         ) {
             "Native texture color differs"
         }
