@@ -1,0 +1,15 @@
+# Keep identical across entry addresses of the same logical server.
+server-id: ''
+# Both rates are bytes per second, including MiniMap protocol headers.
+player-bytes-per-second: 131072
+total-bytes-per-second: 4194304
+worker-threads: 2
+# Map world names explicitly to a BlueMap map ID if a world has multiple maps.
+bluemap-maps: {}
+# Optional per-world settings: enabled, permission, id, epoch.
+# worlds:
+#   summer-palace:
+#     permission: minimap.world.summer-palace
+#     id: summer-palace
+#     epoch: '1'
+worlds: {}

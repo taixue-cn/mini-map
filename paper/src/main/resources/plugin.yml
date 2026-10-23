@@ -1,0 +1,10 @@
+name: MiniMapServer
+version: '${version}'
+main: io.github.minimap.paper.MiniMapServer
+api-version: '1.21.4'
+description: Optional world-scoped minimap synchronization over Minecraft plugin messages
+softdepend: [BlueMap]
+permissions:
+  minimap.use:
+    description: Allow downloading the current world's server map
+    default: true
