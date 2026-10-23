@@ -12,7 +12,7 @@ final class XaeroBridge implements MiniMapClient.Bridge {
     private final Minecraft client=Minecraft.getInstance();
     private MapProcessor processor(){var session=WorldMapSession.getCurrentSession();return session==null?null:session.getMapProcessor();}
     private boolean current(MapProcessor processor){
-        var id=MiniMapClient.identity();return id!=null&&processor!=null&&processor.isMapWorldUsable()&&processor.getCurrentCaveLayer()==0
+        var id=MiniMapClient.identity();return id!=null&&processor!=null&&processor.isMapWorldUsable()&&processor.getCurrentCaveLayer()==Integer.MAX_VALUE
             &&id.serverFolder().equals(processor.getCurrentWorldId())&&id.worldFolder().equals(processor.getCurrentMWId())
             &&MiniMapClient.isCurrentDimension(processor.getMapWorld().getCurrentDimensionId());
     }
@@ -37,7 +37,7 @@ final class XaeroBridge implements MiniMapClient.Bridge {
     @Override public void tile(TilePos pos,TileData data){
         MapProcessor processor=processor();if(!current(processor))return;
         synchronized(processor){
-            MapRegion region=processor.getLeafMapRegion(0,pos.x()>>3,pos.z()>>3,true);if(region==null||region.getLoadState()==1)return;
+            MapRegion region=processor.getLeafMapRegion(Integer.MAX_VALUE,pos.x()>>3,pos.z()>>3,true);if(region==null||region.getLoadState()==1)return;
             synchronized(region.writerThreadPauseSync){
                 if(region.getLoadState()==0){
                     if(Boolean.TRUE.equals(region.getSaveExists())){processor.getMapSaveLoad().requestLoad(region,"MiniMap surface");return;}
@@ -62,7 +62,7 @@ final class XaeroBridge implements MiniMapClient.Bridge {
     }
     @Override public void missing(TilePos pos){
         MapProcessor processor=processor();if(!current(processor))return;
-        var region=processor.getLeafMapRegion(0,pos.x()>>3,pos.z()>>3,false);if(region==null)return;
+        var region=processor.getLeafMapRegion(Integer.MAX_VALUE,pos.x()>>3,pos.z()>>3,false);if(region==null)return;
         synchronized(region.writerThreadPauseSync){
             var chunk=region.getChunk(pos.x()&7,pos.z()&7);if(chunk==null)return;
             var first=chunk.getTile(0,0);if(first==null||!(first.getBlock(0,0) instanceof ServerMapBlock))return;

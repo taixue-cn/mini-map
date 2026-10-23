@@ -27,6 +27,9 @@ public final class ClientFixture implements ClientModInitializer {
                 }
                 if(MiniMapClient.identity()==null)return;
                 var session=WorldMapSession.getCurrentSession();if(session==null)return;var processor=session.getMapProcessor();
+                String debug="usable="+processor.isMapWorldUsable()+" root="+processor.getCurrentWorldId()+" mw="+processor.getCurrentMWId()+" expected="+MiniMapClient.identity().worldFolder()+" cave="+processor.getCurrentCaveLayer()+" dimension="+processor.getMapWorld().getCurrentDimensionId()+" screen="+client.gui.screen();
+                if(client.gui.screen() instanceof GuiMap gui){for(String field:new String[]{"cameraX","cameraZ","scale"}){var f=GuiMap.class.getDeclaredField(field);f.setAccessible(true);debug+=" "+field+"="+f.get(gui);}debug+=" sameDimension="+(gui.getDimensionOnInit()==processor.getMapWorld().getCurrentDimension());}
+                Files.writeString(Path.of(System.getenv("MINIMAP_TEST_REPORT")+".debug"),debug);
                 if(!processor.isMapWorldUsable()||!MiniMapClient.identity().worldFolder().equals(processor.getCurrentMWId()))return;
                 if(!opened){
                     var screen=new GuiMap(null,null,processor,client.player);client.gui.setScreen(screen);opened=true;
@@ -35,11 +38,11 @@ public final class ClientFixture implements ClientModInitializer {
                 if(client.gui.screen() instanceof GuiMap screen){
                     for(String field:new String[]{"cameraX","cameraZ"}){var f=GuiMap.class.getDeclaredField(field);f.setAccessible(true);f.setDouble(screen,672);}
                 }
-                var tile=processor.getMapTile(0,40,40);if(tile==null)return;var block=tile.getBlock(0,0);if(block==null||!block.getClass().getSimpleName().equals("ServerMapBlock"))return;
+                var tile=processor.getMapTile(Integer.MAX_VALUE,40,40);if(tile==null)return;var block=tile.getBlock(0,0);if(block==null||!block.getClass().getSimpleName().equals("ServerMapBlock"))return;
                 var field=block.getClass().getDeclaredField("source");field.setAccessible(true);TileData data=(TileData)field.get(block);
                 if(data.color(0)!=0xffe04090||data.height(0)!=71||data.light(0)!=12)throw new AssertionError("Surface samples changed");
                 if(client.level.getChunkSource().hasChunk(40,40))throw new AssertionError("Remote tile is inside vanilla loaded chunks");
-                var chunk=processor.getMapChunk(0,10,10);if(chunk.getToUpdateBuffers())return;
+                var chunk=processor.getMapChunk(Integer.MAX_VALUE,10,10);if(chunk.getToUpdateBuffers())return;
                 finish(client,true,"Remote color, height and light imported into native Xaero tile outside loaded chunks; stable cache identity active");
             }catch(Throwable e){finish(client,false,e.toString());}
         });
