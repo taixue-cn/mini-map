@@ -3,7 +3,7 @@
 import concurrent.futures, hashlib, json, os, pathlib, shutil, subprocess, urllib.request
 
 project=pathlib.Path(__file__).resolve().parents[1]
-gradle=pathlib.Path.home()/'.gradle/caches'
+gradle=pathlib.Path(os.environ.get('GRADLE_USER_HOME',pathlib.Path.home()/'.gradle'))/'caches'
 cache=pathlib.Path(os.environ['MINIMAP_TEST_LIBRARIES']);cache.mkdir(parents=True,exist_ok=True)
 def artifact(group,name,release):
  return next(gradle.glob(f'modules-2/files-2.1/{group}/{name}/{release}/*/{name}-{release}.jar'))
