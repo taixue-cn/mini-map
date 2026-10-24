@@ -80,6 +80,15 @@ class LifecycleFixture : ClientModInitializer {
             baseline = FixturePackets.snapshot()
             write(root.resolve("client-observed.json"), mapOf("sequence" to sequence))
         }
+        write(
+            root.resolve("client-state.json"),
+            mapOf(
+                "sequence" to sequence,
+                "identity" to MiniMapClient.identity()?.key(),
+                "dimension" to client.level!!.dimension().identifier().toString(),
+                "counts" to FixturePackets.snapshot(),
+            ),
+        )
         if (acknowledged) return
         check(now - began < 90000) { "Phase $sequence timeout: ${FixturePackets.snapshot()}" }
         val operation = command["operation"].asString
