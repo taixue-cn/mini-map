@@ -88,10 +88,10 @@ class LifecycleFixture : ClientModInitializer {
             return
         }
         val identity = MiniMapClient.identity()
-        val processor = WorldMapSession.getCurrentSession()?.mapProcessor ?: return
+        val processor = WorldMapSession.getCurrentSession()?.mapProcessor
         val open = command["open"]?.asBoolean ?: false
         val currentScreen = client.gui.screen() as? GuiMap
-        if (open && processor.isMapWorldUsable &&
+        if (open && processor != null && processor.isMapWorldUsable &&
             (currentScreen == null || currentScreen.dimensionOnInit !== processor.mapWorld.currentDimension)
         ) {
             client.gui.setScreen(GuiMap(null, null, processor, client.player))
@@ -108,9 +108,13 @@ class LifecycleFixture : ClientModInitializer {
         val ready = when (operation) {
             "revoked" -> identity == null && delta("revokes") > 0
             "world" -> identity == null && client.level!!.dimension().identifier().toString() == command["dimension"].asString
-            "idle" -> identity != null && processor.isMapWorldUsable && identity.worldFolder() == processor.currentMWId
+            "idle" -> identity != null && processor != null && processor.isMapWorldUsable && identity.worldFolder() == processor.currentMWId
             "tile", "missing" -> {
-                if (identity == null || !processor.isMapWorldUsable || identity.worldFolder() != processor.currentMWId) return
+                if (identity == null || processor == null || !processor.isMapWorldUsable ||
+                    identity.worldFolder() != processor.currentMWId
+                ) {
+                    return
+                }
                 val block = processor.getMapTile(Int.MAX_VALUE, 40, 40)?.getBlock(0, 0) ?: return
                 if (block.javaClass.simpleName != "ServerMapBlock") return
                 val data = block.javaClass.getDeclaredField("source").apply { isAccessible = true }.get(block) as TileData
@@ -171,8 +175,8 @@ class LifecycleFixture : ClientModInitializer {
         evidence["dimension"] = client.level!!.dimension().identifier().toString()
         if (identity != null) {
             evidence["cacheIdentity"] = identity.key()
-            evidence["serverFolder"] = processor.currentWorldId
-            evidence["worldFolder"] = processor.currentMWId
+            evidence["serverFolder"] = processor?.currentWorldId ?: ""
+            evidence["worldFolder"] = processor?.currentMWId ?: ""
         }
         write(root.resolve("client-ack.json"), evidence)
         acknowledged = true
