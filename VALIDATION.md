@@ -1,3 +1,26 @@
+# Current-world binding regression — 2026-10-24
+
+Production source `91048a88c41a89fe8d413056e66e7fdbd277c289` passes Spotless/build, 12 server/shared and five client
+JVM tests, with no failures/skips. Actions [40071855538](https://github.com/taixue-cn/mini-map/actions/runs/40071855538)
+passes build and Paper 1.21.4/26.3 smoke checks. The provider SDK, protocol and production client are unchanged.
+
+The private saved-world acceptance uses two actual Paper worlds, existing PostgreSQL/MinIO and distributed
+Fabric/Xaero. The retained old server jar (`6424fad6f7d2f305ea2226facbe80c00aa226ac774fbeda2d68637ff803e4339`)
+keeps its original-world session after the map moves elsewhere: the provider resolves no map for that player's
+world while the same map remains available. This is an actual session-withdrawal counterexample; it does not claim
+that secret destination-world samples were exfiltrated.
+
+The fixed server (`11e8b979738d84e99a437f115e8cfa4448f30299fc5cd7be62094cb1d25e60aa`) revokes that session without
+delivering another target tile. Restoring the binding reuses its cache. A second migration changes saved terrain and
+epoch while renderer work is pending; the player remains denied until entering the destination. The client then
+verifies all 4096 canonical/cache/native GPU samples at height74/light0 with a new cache identity. All ten integrated
+phases, normal process exit and ownership-checked test schema/bucket/configuration cleanup pass. Fixture observations
+are excluded from release jars; the client receives no storage credentials.
+
+Evidence is retained privately under `blue-map-source-rebinding-20261024`; private runtime source
+`7dbae17b77f862bd06beef5414cde922bd0ee2e1`. This covers current-world binding, not deployed website ACLs/IAM or
+production load. The earlier lifecycle checks below retain their own source revisions.
+
 # Kotlin monorepo validation — 2026-10-24
 
 All live checks used new loopback server/client directories under `/tmp/minimap-kotlin`, with production worlds untouched.

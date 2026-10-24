@@ -24,7 +24,7 @@ worlds:
     permission: minimap.world.summer-palace
 ```
 
-`minimap.use` defaults to true. An additional world permission is optional. Requests are authorized against the **connection player's current world** on receipt and again before sending. Changing worlds, losing permission, closing the map, or disconnecting cancels pending work. There is no world list or client-selected world endpoint. Downloaded data remains on the player's computer; permission revocation cannot recall already delivered maps.
+`minimap.use` defaults to true. An additional world permission is optional. Requests are authorized against the **connection player's current world** on receipt, after asynchronous reads and before sending. Active sessions must still match the current provider instance, map, world UUID, cache identity/epoch and dimension. Moving an available map to another world revokes the original world's session. Changing worlds, losing permission, closing the map, or disconnecting cancels pending work. There is no world list or client-selected world endpoint. Downloaded data remains on the player's computer; permission revocation cannot recall already delivered maps.
 
 ## Providers and custom BlueMap storage
 
