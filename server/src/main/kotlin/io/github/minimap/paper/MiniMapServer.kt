@@ -30,14 +30,16 @@ class MiniMapServer :
     JavaPlugin(),
     Listener,
     PluginMessageListener {
-    private data class Binding(
+    internal data class Binding(
         val provider: MapProvider,
         val map: MapProvider.MapRef,
         val world: UUID,
         val worldId: String,
         val epoch: String,
         val dimension: String,
-    )
+    ) {
+        fun matches(current: Binding?): Boolean = current != null && provider === current.provider && this == current
+    }
 
     private class Session(val binding: Binding, rate: Double) {
         val id: UUID = UUID.randomUUID()
@@ -153,9 +155,11 @@ class MiniMapServer :
         )
     }
 
-    private fun current(player: Player, session: Session): Boolean =
-        sessions[player.uniqueId] === session && player.isOnline && session.binding.world == player.world.uid &&
-            permitted(player) && available(session.binding)
+    private fun current(player: Player, session: Session): Boolean {
+        if (sessions[player.uniqueId] !== session || !player.isOnline || session.binding.world != player.world.uid) return false
+        // A map can remain available after it is rebound to another world or provider.
+        return session.binding.matches(resolve(player)) && available(session.binding)
+    }
 
     private fun available(binding: Binding): Boolean = try {
         binding.provider.available(binding.map)
