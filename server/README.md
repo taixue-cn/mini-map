@@ -32,7 +32,7 @@ The built-in adapter selects a BlueMap map by Bukkit world save folder. With mul
 
 BlueMap's public API does **not** guarantee this raster representation. The built-in adapter uses version-sensitive Core methods; incompatible versions/formats fail closed. A private BlueMap fork with a changed PNG format should register a custom provider that reads logical samples *before* its private encoder, or decodes its format internally. Merely using MinIO while preserving the Core interface and standard samples needs no public MiniMap change.
 
-Kotlin is the primary implementation language. Compile your bridge against `mini-map-provider-api-0.1.0.jar` as **compileOnly**, declare `depend: [MiniMapServer]`, then register:
+Kotlin is the primary implementation language. Compile your bridge against the matching `mini-map-provider-api-<version>.jar` as **compileOnly**, declare `depend: [MiniMapServer]`, then register:
 
 ```kotlin
 server.servicesManager.register(
@@ -59,5 +59,7 @@ python3 scripts/paper-smoke.py --version 1.21.4 --java /path/to/java21/bin/java 
 ```
 
 Use fresh directories. The test binds loopback and generates an isolated flat world. Read the Minecraft EULA before accepting. `--hold` keeps a test server running for a native client test until `<directory>/stop` exists.
+
+For the real standard BlueMap path, `scripts/bluemap-native.py --accept-eula --bluemap-jar /path/to/bluemap-5.29-paper.jar --java /path/to/java25 --xvfb /path/to/Xvfb` creates its own marked loopback world, renders saved blocks with upstream file storage and runs the distributed Fabric/Xaero client through two entry addresses. It pins the upstream jar's release digest; optional `--resources-jar` reuses an existing Mojang 26.3 client resource jar and `--reuse-runtime` reads an existing Paper cache. Resource files remain private and are not included in evidence bundles. The fixture does not register a replacement provider or connect to PostgreSQL/MinIO. See [the current validation record](../VALIDATION.md#actual-upstream-bluemap-render--2026-10-24).
 
 `main` pushes and pull requests run the build. Pushing a `v*` tag builds and publishes GitHub Release jars plus SHA-256 checksums. The two modules compile one shared protocol source tree.

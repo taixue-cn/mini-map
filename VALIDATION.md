@@ -22,6 +22,16 @@ Native reports: `client-1214/report.json`, `client-updates/report.json`, `client
 
 `server/VALIDATION.md` and `client/VALIDATION.md` retain historical Java-alpha results; the table above independently covers the Kotlin migration. Both original Git histories remain ancestors of this repository.
 
-Limits: the live provider is deterministic test data. Full BlueMap rendering, MinIO/private provider integration and large-server load/compression benchmarks are not proved by these checks. The client remains pinned to Xaero World Map 1.47.1, surface tiles and at most 1024 detailed tiles per view.
+Limits: the table above uses a deterministic provider. The separate upstream render check below covers the built-in BlueMap adapter. MinIO/private provider integration and large-server load/compression benchmarks remain unproved. The client remains pinned to Xaero World Map 1.47.1, surface tiles and at most 1024 detailed tiles per view.
 
 Server/provider integrations may launch a real client without the assertion fixture by setting `MINIMAP_TEST_PRESENCE_ONLY=true` for `scripts/native-client.py`. It requires a fresh game directory, sets first-start/low-distance options only there, omits the fixture mod and joins `MINIMAP_TEST_SERVER` through Minecraft's quick-play argument. The caller owns assertions and shutdown; this mode produces no MiniMap/Xaero PASS report and cannot substitute for the native transfer checks above. Ordinary fixture mode remains the default. Resource processing declares the packaged version as an input, so a reused build directory cannot silently retain an earlier plugin/mod version.
+
+## Actual upstream BlueMap render — 2026-10-24
+
+`scripts/bluemap-native.py` passed with the unmodified upstream BlueMap 5.29 Paper jar (SHA-256 `7bf475936c26107d476c63151c76d5b49e865eebeada12c9e7d92155de877b9f`), Paper 26.3 build 218, Fabric 26.3/Loader 0.20.1 and Xaero World Map 1.47.1. The upstream artifact digest was independently checked against its GitHub release metadata.
+
+The separate fixture saved and flushed a sea-lantern plane outside spawn, requested a real upstream render into its fresh file storage and read its gzip/PNG tiles through the production built-in adapter. No alternative `MapProvider` was registered. All 4096 requested samples had height 70 and block light 15; the native client verified the first sample's `ffacc7be` color, numerical data and uploaded texture RGB outside vanilla loaded chunks. Connecting through `127.0.0.1` and `localhost` produced the same native server/world cache IDs and both client reports passed.
+
+Paper 26.3's actual Bukkit save folder and BlueMap's dimension folder matched after normalization, so this test required no production adapter change. The fixture pads its saved source/mask beyond the requested tile to avoid clipping upstream render cells. It is excluded from production jars and only opts in inside a freshly marked private workspace. Website skins/metrics and the public web server are disabled. No PostgreSQL, MinIO, business world or additional storage service is used.
+
+This verifies the standard upstream/file-storage path, not the private MinIO-backed renderer or deployed permissions. The latter remains a separate required acceptance gate.

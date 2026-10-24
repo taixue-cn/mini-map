@@ -10,11 +10,20 @@ import java.util.concurrent.atomic.AtomicLong
 class ProviderFixture :
     JavaPlugin(),
     MapProvider {
+    private var standardBlueMap: StandardBlueMapFixture? = null
     private val firstRead = AtomicLong()
 
     override fun onEnable() {
+        if (System.getenv("MINIMAP_TEST_UPSTREAM_BLUEMAP") == "true") {
+            standardBlueMap = StandardBlueMapFixture(this).also { it.start() }
+            return
+        }
         server.servicesManager.register(MapProvider::class.java, this, this, ServicePriority.Highest)
         logger.info("MINIMAP_FIXTURE_READY")
+    }
+
+    override fun onDisable() {
+        standardBlueMap?.close()
     }
 
     override fun resolve(world: MapProvider.WorldRef): Optional<MapProvider.MapRef> =

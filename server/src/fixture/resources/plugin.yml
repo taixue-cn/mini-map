@@ -3,3 +3,4 @@ version: '1.0'
 main: io.github.minimap.fixture.ProviderFixture
 api-version: '1.21.4'
 depend: [MiniMapServer]
+softdepend: [BlueMap]
