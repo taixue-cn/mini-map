@@ -78,6 +78,7 @@ class LifecycleFixture : ClientModInitializer {
             began = now
             stable = 0
             baseline = FixturePackets.snapshot()
+            write(root.resolve("client-observed.json"), mapOf("sequence" to sequence))
         }
         if (acknowledged) return
         check(now - began < 90000) { "Phase $sequence timeout: ${FixturePackets.snapshot()}" }
@@ -89,7 +90,10 @@ class LifecycleFixture : ClientModInitializer {
         val identity = MiniMapClient.identity()
         val processor = WorldMapSession.getCurrentSession()?.mapProcessor ?: return
         val open = command["open"]?.asBoolean ?: false
-        if (open && client.gui.screen() !is GuiMap && processor.isMapWorldUsable) {
+        val currentScreen = client.gui.screen() as? GuiMap
+        if (open && processor.isMapWorldUsable &&
+            (currentScreen == null || currentScreen.dimensionOnInit !== processor.mapWorld.currentDimension)
+        ) {
             client.gui.setScreen(GuiMap(null, null, processor, client.player))
         } else if (!open && client.gui.screen() is GuiMap) {
             client.gui.setScreen(null)
@@ -114,9 +118,12 @@ class LifecycleFixture : ClientModInitializer {
                 if (chunk.toUpdateBuffers || !chunk.leafTexture.isUploaded) return
                 val pixels = chunk.leafTexture.directColorBuffer ?: return
                 val color = data.color(0)
-                if ((0..3).any { channel ->
-                        val shift = intArrayOf(16, 8, 0, 24)[channel]
-                        pixels.get(channel).toInt() and 255 != (color ushr shift) and 255
+                check(pixels.capacity() >= 4096 * 4) { "Native texture has unexpected dimensions" }
+                if ((0 until 4096).any { index ->
+                        (0..3).any { channel ->
+                            val shift = intArrayOf(16, 8, 0, 24)[channel]
+                            pixels.get(index * 4 + channel).toInt() and 255 != (data.color(index) ushr shift) and 255
+                        }
                     }
                 ) {
                     return
@@ -127,6 +134,7 @@ class LifecycleFixture : ClientModInitializer {
                 val cached = cache.read(identity, TilePos(10, 10)).orElse(null)
                 evidence["digest"] = digest
                 evidence["gpuUploaded"] = true
+                evidence["gpuSamples"] = 4096
                 evidence["outsideVanilla"] = true
                 evidence["height"] = data.height(0)
                 evidence["light"] = data.light(0).toInt()
