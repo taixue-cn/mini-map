@@ -1,5 +1,6 @@
 package io.github.minimap.fabric
 
+import io.github.minimap.client.CacheIdentity
 import io.github.minimap.fabric.mixin.GuiMapAccess
 import io.github.minimap.protocol.TileData
 import io.github.minimap.protocol.TilePos
@@ -7,6 +8,7 @@ import net.minecraft.client.Minecraft
 import xaero.map.MapProcessor
 import xaero.map.WorldMapSession
 import xaero.map.gui.GuiMap
+import xaero.map.region.MapRegion
 import xaero.map.region.MapTile
 import xaero.map.region.MapTileChunk
 import xaero.map.region.MapUpdateFastConfig
@@ -14,6 +16,22 @@ import kotlin.math.floor
 
 internal class XaeroBridge : MiniMapClient.Bridge {
     private val client = Minecraft.getInstance()
+    private var owner: CacheIdentity? = null
+    private val recentRegions = linkedMapOf<Pair<Int, Int>, MapRegion>()
+
+    override fun reset() {
+        recentRegions.clear()
+        owner = null
+    }
+
+    private fun maintainRecentRegions() {
+        val identity = MiniMapClient.identity()
+        if (owner != identity) {
+            reset()
+            owner = identity
+        }
+        recentRegions.values.forEach { it.registerVisit() }
+    }
 
     private fun processor(): MapProcessor? = WorldMapSession.getCurrentSession()?.mapProcessor
 
@@ -25,6 +43,7 @@ internal class XaeroBridge : MiniMapClient.Bridge {
     }
 
     override fun open(): Boolean {
+        maintainRecentRegions()
         val screen = client.gui.screen() as? GuiMap ?: return false
         return current(screen.mapProcessor) && screen.dimensionOnInit === screen.mapProcessor.mapWorld.currentDimension
     }
@@ -86,6 +105,14 @@ internal class XaeroBridge : MiniMapClient.Bridge {
                     region.confirmMetaLoaded()
                 }
                 region.registerVisit()
+                if (!remove) {
+                    maintainRecentRegions()
+                    val key = (pos.x shr 3) to (pos.z shr 3)
+                    recentRegions.remove(key)
+                    recentRegions[key] = region
+                    // Two full detailed views stay resident; older views still have native and portable disk caches.
+                    while (recentRegions.size > 32) recentRegions.remove(recentRegions.keys.first())
+                }
                 var chunk = region.getChunk(pos.x and 7, pos.z and 7)
                 val changes = mutableListOf<Pair<Int, Int>>()
                 for (tileZ in 0 until 4) {

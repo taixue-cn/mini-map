@@ -20,6 +20,7 @@ import java.io.IOException
 
 class MiniMapClient : ClientModInitializer {
     interface Bridge : MapSync.Display {
+        fun reset()
         fun open(): Boolean
         fun visible(): List<TilePos>
     }
@@ -54,7 +55,7 @@ class MiniMapClient : ClientModInitializer {
             }
         }
         ClientPlayConnectionEvents.JOIN.register { _, _, client -> reset(client) }
-        ClientPlayConnectionEvents.DISCONNECT.register { _, client -> reset(client) }
+        ClientPlayConnectionEvents.DISCONNECT.register { _, client -> client.execute { reset(client) } }
         ClientTickEvents.END_CLIENT_TICK.register { client ->
             if (client.level !== world) reset(client)
             if (client.level == null || client.connection == null) return@register
@@ -73,6 +74,7 @@ class MiniMapClient : ClientModInitializer {
     }
 
     private fun reset(client: Minecraft) {
+        bridge.reset()
         identity = null
         dimension = null
         sync.reset()
@@ -99,6 +101,7 @@ class MiniMapClient : ClientModInitializer {
         } else {
             sync.receive(message, System.currentTimeMillis())
             if (sync.offer == null) {
+                bridge.reset()
                 identity = null
                 dimension = null
             }
