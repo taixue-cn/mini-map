@@ -1,3 +1,9 @@
+# Visible-request scheduling regression — 2026-10-24
+
+The released v1 client could repeatedly refresh early tiles before a larger visible set was filled: its 150 ms request interval crosses the 10-second refresh age after 67 tiles. A new deterministic 128-tile test reproduces the repeated `(0,0)` request when `(3,4)` should be next. The unchanged visible list is rebuilt on each tick, matching GUI behavior.
+
+The client now advances a request cursor after each selected tile and resets it when the viewport changes. The regression verifies all 128 requests before the first refresh, then confirms refresh resumes; a separate pan check verifies the new center receives priority. Full Spotless/build and all JVM checks pass. Wire messages, providers, server transport, native block import and cache identity are unchanged. This fixes scheduling within the existing bounded detailed view; v1's extreme-zoom LOD limitation remains as documented in client/README.md. No production server is restarted or modified by this client change.
+
 # Current-world binding regression — 2026-10-24
 
 Production source `91048a88c41a89fe8d413056e66e7fdbd277c289` passes Spotless/build, 12 server/shared and five client
