@@ -1,6 +1,5 @@
 package io.github.minimap.fabric
 
-import io.github.minimap.client.CacheIdentity
 import io.github.minimap.fabric.mixin.GuiMapAccess
 import io.github.minimap.protocol.TileData
 import io.github.minimap.protocol.TilePos
@@ -15,8 +14,6 @@ import kotlin.math.floor
 
 internal class XaeroBridge : MiniMapClient.Bridge {
     private val client = Minecraft.getInstance()
-    private var owner: CacheIdentity? = null
-    private val imported = mutableSetOf<TilePos>()
 
     private fun processor(): MapProcessor? = WorldMapSession.getCurrentSession()?.mapProcessor
 
@@ -62,15 +59,16 @@ internal class XaeroBridge : MiniMapClient.Bridge {
         return result.sortedBy { (it.x - centerX).toLong() * (it.x - centerX) + (it.z - centerZ).toLong() * (it.z - centerZ) }
     }
 
-    override fun tile(pos: TilePos, data: TileData) {
+    override fun tile(pos: TilePos, data: TileData) = update(pos, data, false)
+
+    override fun missing(pos: TilePos) = update(pos, EMPTY, true)
+
+    private fun update(pos: TilePos, data: TileData, remove: Boolean) {
         val processor = processor() ?: return
+        val level = client.level ?: return
         if (!current(processor)) return
-        if (owner != MiniMapClient.identity()) {
-            owner = MiniMapClient.identity()
-            imported.clear()
-        }
         synchronized(processor) {
-            val region = processor.getLeafMapRegion(Int.MAX_VALUE, pos.x shr 3, pos.z shr 3, true) ?: return
+            val region = processor.getLeafMapRegion(Int.MAX_VALUE, pos.x shr 3, pos.z shr 3, !remove) ?: return
             if (region.loadState.toInt() == 1) return
             synchronized(region.writerThreadPauseSync) {
                 if (region.isWritingPaused || region.loadState.toInt() == 3) return
@@ -79,34 +77,47 @@ internal class XaeroBridge : MiniMapClient.Bridge {
                         processor.mapSaveLoad.requestLoad(region, "MiniMap surface")
                         return
                     }
+                    if (remove) return
                     region.loadState = 2
                     region.confirmMetaLoaded()
                 }
-                if (region.pixelResultBuffer == null) region.restoreBufferUpdateObjects()
-                region.loadState = 2
                 region.registerVisit()
                 var chunk = region.getChunk(pos.x and 7, pos.z and 7)
-                val first = chunk?.getTile(0, 0)?.getBlock(0, 0)
-                if (first is ServerMapBlock && first.source === data) return
+                val changes = mutableListOf<Pair<Int, Int>>()
+                for (tileZ in 0 until 4) {
+                    for (tileX in 0 until 4) {
+                        // Live Minecraft chunks belong to Xaero's writer, whose samples are newer than saved server terrain.
+                        val tile = chunk?.getTile(tileX, tileZ)
+                        val changed = needsServerUpdate(
+                            tile,
+                            data,
+                            remove,
+                            level.chunkSource.hasChunk(pos.x * 4 + tileX, pos.z * 4 + tileZ),
+                        )
+                        if (changed) changes += tileX to tileZ
+                    }
+                }
+                if (changes.isEmpty()) return
+                if (region.pixelResultBuffer == null) region.restoreBufferUpdateObjects()
+                region.loadState = 2
                 if (chunk == null) {
                     chunk = MapTileChunk(region, pos.x, pos.z)
                     region.setChunk(pos.x and 7, pos.z and 7, chunk)
                 }
                 region.pushWriterPause()
                 try {
-                    for (tileZ in 0 until 4) {
-                        for (tileX in 0 until 4) {
-                            val tile = MapTile(null, pos.x * 4 + tileX, pos.z * 4 + tileZ)
-                            tile.isLoaded = true
-                            tile.setWrittenOnce(true)
-                            tile.worldInterpretationVersion = MapTile.CURRENT_WORLD_INTERPRETATION_VERSION
-                            for (z in 0 until 16) {
-                                for (x in 0 until 16) {
-                                    tile.setBlock(x, z, ServerMapBlock(data, (tileZ * 16 + z) * 64 + tileX * 16 + x))
-                                }
+                    for ((tileX, tileZ) in changes) {
+                        val tile = if (remove) {
+                            chunk.getTile(tileX, tileZ) ?: continue
+                        } else {
+                            MapTile(null, pos.x * 4 + tileX, pos.z * 4 + tileZ).apply {
+                                isLoaded = true
+                                setWrittenOnce(true)
+                                worldInterpretationVersion = MapTile.CURRENT_WORLD_INTERPRETATION_VERSION
                             }
-                            chunk.setTile(tileX, tileZ, tile, processor.blockStateShortShapeCache, processor)
                         }
+                        tile.importServerSamples(data, tileX * 16, tileZ * 16, remove)
+                        chunk.setTile(tileX, tileZ, tile, processor.blockStateShortShapeCache, processor)
                     }
                     chunk.setLoadState(2)
                     chunk.setHasHadTerrain()
@@ -126,7 +137,6 @@ internal class XaeroBridge : MiniMapClient.Bridge {
                         MapUpdateFastConfig(processor),
                     )
                     if (!processor.isProcessed(region)) processor.addToProcess(region)
-                    imported += pos
                 } finally {
                     region.popWriterPause()
                 }
@@ -134,15 +144,7 @@ internal class XaeroBridge : MiniMapClient.Bridge {
         }
     }
 
-    override fun missing(pos: TilePos) {
-        val processor = processor() ?: return
-        if (!current(processor)) return
-        val region = processor.getLeafMapRegion(Int.MAX_VALUE, pos.x shr 3, pos.z shr 3, false) ?: return
-        val clear = synchronized(region.writerThreadPauseSync) {
-            val chunk = region.getChunk(pos.x and 7, pos.z and 7) ?: return
-            val first = chunk.getTile(0, 0)?.getBlock(0, 0)
-            (owner == MiniMapClient.identity() && pos in imported) || first is ServerMapBlock
-        }
-        if (clear) tile(pos, TileData(IntArray(4096), IntArray(4096), ByteArray(4096)))
+    companion object {
+        private val EMPTY = TileData(IntArray(4096), IntArray(4096), ByteArray(4096))
     }
 }

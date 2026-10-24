@@ -7,6 +7,7 @@ import io.github.minimap.protocol.Wire
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -154,6 +155,29 @@ class SessionTest {
             sync.tick(10150)
             pump { sent.filterIsInstance<Wire.Request>().size == 2 }
             assertEquals(TilePos(100, 100), request().pos)
+            assertTrue(errors.isEmpty())
+        }
+    }
+
+    @Test
+    fun unchangedRefreshDoesNotReplaceTheDisplayedSnapshot() {
+        val session = offer("stable-view")
+        val pos = TilePos(0, 0)
+        val encoded = encoded()
+        TileCache(root, 1000000).write(CacheIdentity.of(session), pos, encoded)
+        sync().use { sync ->
+            sync.offer(session)
+            sync.view(true, listOf(pos))
+            val now = System.currentTimeMillis()
+            sync.tick(now)
+            pump { sent.any { it is Wire.Request } }
+            val original = displayed.last()
+            val first = request()
+            sync.receive(Wire.Status(session.session, first.requestId, pos, Wire.Result.UNCHANGED), now)
+            sync.tick(now + 11000)
+            pump { sent.filterIsInstance<Wire.Request>().size == 2 }
+            assertSame(original, displayed.last(), "conditional refresh must not rebuild native textures from an identical cache entry")
+            assertArrayEquals(encoded.hash, request().knownHash)
             assertTrue(errors.isEmpty())
         }
     }

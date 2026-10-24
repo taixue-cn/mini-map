@@ -1,3 +1,11 @@
+# Native surface refresh regressions — 2026-10-24
+
+An unchanged cached response previously decoded a new snapshot on each refresh, defeating the native import identity check. A regression failed against the previous implementation and passes with the decoded cache entry retained in memory. Native samples now pass height/top-height/block-light in Xaero's actual parameter order; the previous implementation supplied light as top-height and zero as light.
+
+Five additional tests bootstrap Minecraft registries and exercise the real Xaero 1.47.1 MapBlock/MapTile classes without launching a game or server. They check height fields, native writer ownership, unchanged import detection, preservation of locally explored pixels when server terrain is missing, and replacement of changed samples outside loaded Minecraft chunks. The importer skips loaded Minecraft chunks, updates only changed native tiles and registers visits even when samples are unchanged.
+
+`spotlessCheck build -PreleaseVersion=0.2.0-alpha.5` passes: 13 client and 12 server/shared tests, no failures or skips. These are CPU checks; this revision has not yet been validated in a rendered client session against the user's flickering scene. The existing detailed-view size limit and lack of protocol LOD remain. No production server or storage configuration was changed.
+
 # Visible-request scheduling regression — 2026-10-24
 
 The released v1 client could repeatedly refresh early tiles before a larger visible set was filled: its 150 ms request interval crosses the 10-second refresh age after 67 tiles. A new deterministic 128-tile test reproduces the repeated `(0,0)` request when `(3,4)` should be next. The unchanged visible list is rebuilt on each tick, matching GUI behavior.

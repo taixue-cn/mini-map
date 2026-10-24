@@ -4,10 +4,12 @@ import io.github.minimap.protocol.TileData
 import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Registry
+import net.minecraft.resources.ResourceKey
 import net.minecraft.world.level.biome.Biome
 import net.minecraft.world.level.biome.Biomes
 import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.state.BlockState
 import net.minecraft.world.level.dimension.DimensionType
 import xaero.lib.client.level.block.BlockTextureColorUtils
 import xaero.map.MapProcessor
@@ -22,9 +24,26 @@ import xaero.map.world.MapDimension
 
 /** Render the supplied color directly; vanilla block colors cannot reproduce the server's resource pack. */
 internal class ServerMapBlock(val source: TileData, private val index: Int) : MapBlock() {
+    var serverOwned = true
+        private set
+
     init {
         val block = if (source.color(index) ushr 24 == 0) Blocks.AIR else Blocks.STONE
-        write(block.defaultBlockState(), source.height(index), source.light(index).toInt(), Biomes.PLAINS, 0, false, false)
+        super.write(block.defaultBlockState(), source.height(index), source.height(index), Biomes.PLAINS, source.light(index), false, false)
+    }
+
+    override fun write(
+        state: BlockState,
+        height: Int,
+        topHeight: Int,
+        biome: ResourceKey<Biome>?,
+        light: Byte,
+        glowing: Boolean,
+        cave: Boolean,
+    ) {
+        super.write(state, height, topHeight, biome, light, glowing, cave)
+        // Xaero has observed this block in the live world; subsequent colors must use that newer native sample.
+        serverOwned = false
     }
 
     override fun getPixelColour(
@@ -56,6 +75,14 @@ internal class ServerMapBlock(val source: TileData, private val index: Int) : Ma
         shapes: BlockStateShortShapeCache,
         config: MapUpdateFastConfig,
     ) {
+        if (!serverOwned) {
+            super.getPixelColour(
+                result, textures, level, dimension, blocks, chunk, north, east, other, tile, x, z,
+                caveStart, caveDepth, position, biomes, dimensions, brightness, sky, ambient, tints,
+                processor, overlays, globalX, globalZ, shapes, config,
+            )
+            return
+        }
         val color = source.color(index)
         result[0] = (color ushr 16) and 255
         result[1] = (color ushr 8) and 255
