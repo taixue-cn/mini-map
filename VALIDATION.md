@@ -22,7 +22,7 @@ Native reports: `client-1214/report.json`, `client-updates/report.json`, `client
 
 `server/VALIDATION.md` and `client/VALIDATION.md` retain historical Java-alpha results; the table above independently covers the Kotlin migration. Both original Git histories remain ancestors of this repository.
 
-Limits: the table above uses a deterministic provider. The separate upstream render check below covers the built-in BlueMap adapter. MinIO/private provider integration and large-server load/compression benchmarks remain unproved. The client remains pinned to Xaero World Map 1.47.1, surface tiles and at most 1024 detailed tiles per view.
+Limits: the table above uses a deterministic provider. The separate checks below cover the built-in upstream BlueMap adapter and actual committed MinIO-backed provider integration. Production IAM/website bindings and large-server load/compression benchmarks remain unproved. The client remains pinned to Xaero World Map 1.47.1, surface tiles and at most 1024 detailed tiles per view.
 
 Server/provider integrations may launch a real client without the assertion fixture by setting `MINIMAP_TEST_PRESENCE_ONLY=true` for `scripts/native-client.py`. It requires a fresh game directory, sets first-start/low-distance options only there, omits the fixture mod and joins `MINIMAP_TEST_SERVER` through Minecraft's quick-play argument. The caller owns assertions and shutdown; this mode produces no MiniMap/Xaero PASS report and cannot substitute for the native transfer checks above. Ordinary fixture mode remains the default. Resource processing declares the packaged version as an input, so a reused build directory cannot silently retain an earlier plugin/mod version.
 
@@ -34,7 +34,7 @@ The separate fixture saved and flushed a sea-lantern plane outside spawn, reques
 
 Paper 26.3's actual Bukkit save folder and BlueMap's dimension folder matched after normalization, so this test required no production adapter change. The fixture pads its saved source/mask beyond the requested tile to avoid clipping upstream render cells. It is excluded from production jars and only opts in inside a freshly marked private workspace. Website skins/metrics and the public web server are disabled. No PostgreSQL, MinIO, business world or additional storage service is used.
 
-This verifies the standard upstream/file-storage path, not the private MinIO-backed renderer or deployed permissions. The latter remains a separate required acceptance gate.
+This verifies the standard upstream/file-storage path. The separate committed-provider record below covers the MinIO-backed renderer; neither check establishes deployed permissions.
 
 ## Actual committed-provider cache lifecycle — 2026-10-24
 
