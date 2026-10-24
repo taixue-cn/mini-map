@@ -28,7 +28,7 @@ World/session changes reject old responses. The server grants access only while 
 
 ## Development
 
-Install JDK 25 and run `./gradlew build`. The distributable jar is in `fabric/build/libs/`. Protocol source under `protocol/` is a versioned snapshot from MiniMap Server and must stay byte-identical. `./gradlew :client:fixtureJar` builds a separate test addon, excluded from releases.
+Install JDK 25 and run `./gradlew build`. The distributable jar is in `client/build/libs/`. The server and client compile the same protocol source under `shared/src`; there is no copied protocol snapshot or separate Fabric module. `./gradlew :client:fixtureJar` builds a separate test addon, excluded from releases.
 
 `scripts/native-client.py` launches the **distributed** Fabric jars against an isolated server created by MiniMap Server's smoke script. It uses the local Gradle Minecraft/assets cache, a display or Xvfb, and these environment variables:
 
