@@ -37,8 +37,8 @@ presence=os.environ.get('MINIMAP_TEST_PRESENCE_ONLY')=='true'
 if presence and run.exists() and any(run.iterdir()):raise ValueError('Presence-only capture requires a fresh game directory')
 mods=run/'mods';mods.mkdir(parents=True,exist_ok=True)
 if presence:(run/'options.txt').write_text('onboardAccessibility:false\nskipMultiplayerWarning:true\nrenderDistance:2\nsimulationDistance:2\n')
-jars=[artifact('net.fabricmc','fabric-language-kotlin','1.14.1+kotlin.2.4.20'),project/'client/build/libs/mini-map-client-0.1.0.jar',artifact('net.fabricmc.fabric-api','fabric-api','0.165.0+26.3')]
-if not presence:jars.append(project/'client/build/libs/mini-map-client-0.1.0-fixture.jar')
+jars=[artifact('net.fabricmc','fabric-language-kotlin','1.14.1+kotlin.2.4.20'),pathlib.Path(os.environ.get('MINIMAP_TEST_CLIENT_JAR',project/'client/build/libs/mini-map-client-0.1.0.jar')),artifact('net.fabricmc.fabric-api','fabric-api','0.165.0+26.3')]
+if not presence:jars.append(pathlib.Path(os.environ.get('MINIMAP_TEST_FIXTURE_JAR',project/'client/build/libs/mini-map-client-0.1.0-fixture.jar')))
 if not os.environ.get('MINIMAP_TEST_OMIT_XAERO'):
  for group,artifact,release in [('xaero.map','xaeroworldmap-fabric-26.3','1.47.1'),('xaero.lib','xaerolib-fabric-26.3','1.8.3')]:jars.append(next(gradle.glob('modules-2/files-2.1/'+group+'/'+artifact+'/'+release+'/*/'+artifact+'-'+release+'.jar')))
 for jar in jars:shutil.copy2(jar,mods/jar.name)

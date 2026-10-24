@@ -30,12 +30,14 @@ class ProviderFixture :
         Optional.of(MapProvider.MapRef(world.uid.toString(), "1"))
 
     override fun read(map: MapProvider.MapRef, tileX: Int, tileZ: Int): Optional<MapProvider.SurfaceTile> {
-        if (tileX != 10 || tileZ != 10) return Optional.empty()
+        val stability = java.lang.Boolean.getBoolean("minimap.fixture.stability")
+        if ((tileX != 10 || tileZ != 10) && !(stability && tileX in -3..3 && tileZ in -3..3)) return Optional.empty()
         val now = System.currentTimeMillis()
         firstRead.compareAndSet(0, now)
         val age = now - firstRead.get()
         if (java.lang.Boolean.getBoolean("minimap.fixture.updates") && age >= 18000) return Optional.empty()
-        val changed = java.lang.Boolean.getBoolean("minimap.fixture.updates") && age >= 8000
+        val changed = (java.lang.Boolean.getBoolean("minimap.fixture.updates") && age >= 8000) ||
+            (stability && tileX == 10 && tileZ == 10 && age >= 10000)
         return Optional.of(
             MapProvider.SurfaceTile(
                 IntArray(4096) { if (changed) 0xff30b050.toInt() else 0xffe04090.toInt() },

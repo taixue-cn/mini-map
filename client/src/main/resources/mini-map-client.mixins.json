@@ -3,6 +3,6 @@
   "package": "io.github.minimap.fabric.mixin",
   "compatibilityLevel": "JAVA_25",
   "plugin": "io.github.minimap.fabric.XaeroMixinPlugin",
-  "client": ["GuiMapAccess", "MapWorldMixin", "MapDimensionMixin"],
+  "client": ["GuiMapAccess", "MapWorldMixin", "MapDimensionMixin", "MapTileChunkMixin"],
   "injectors": {"defaultRequire": 1}
 }
