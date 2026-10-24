@@ -55,7 +55,14 @@ class SessionTest {
         assertTrue(condition(), "async work did not complete")
     }
 
-    private fun request(): Wire.Request = sent.filterIsInstance<Wire.Request>().last()
+    private fun requests(): List<Wire.Request> = sent.flatMap { message ->
+        when (message) {
+            is Wire.Request -> listOf(message)
+            is Wire.BatchRequest -> message.requests
+            else -> emptyList()
+        }
+    }
+    private fun request(): Wire.Request = requests().last()
     private fun encoded(): TileCodec.Encoded = TileCodec.encode(
         TileData(
             IntArray(4096) {
@@ -77,7 +84,7 @@ class SessionTest {
             sync.offer(offer("A"))
             sync.view(true, listOf(pos))
             sync.tick(System.currentTimeMillis())
-            pump { sent.any { it is Wire.Request } }
+            pump { requests().isNotEmpty() }
             val old = request()
             sync.offer(offer("B"))
             sync.view(true, listOf(pos))
@@ -86,7 +93,7 @@ class SessionTest {
             assertTrue(deleted.isEmpty())
             sent.clear()
             sync.tick(System.currentTimeMillis())
-            pump { sent.any { it is Wire.Request } }
+            pump { requests().isNotEmpty() }
             val current = request()
             sync.view(false, emptyList())
             sync.receive(part(current, encoded()), System.currentTimeMillis())
@@ -106,7 +113,7 @@ class SessionTest {
             sync.offer(offer)
             sync.view(true, listOf(pos))
             sync.tick(System.currentTimeMillis())
-            pump { sent.any { it is Wire.Request } }
+            pump { requests().isNotEmpty() }
             val request = request()
             assertArrayEquals(data.hash, request.knownHash)
             assertFalse(displayed.isEmpty())
@@ -117,34 +124,51 @@ class SessionTest {
             sync.view(true, listOf(pos))
             val reopened = System.currentTimeMillis() + 1000
             sync.tick(reopened)
-            pump(reopened) { sent.any { it is Wire.Request } }
+            pump(reopened) { requests().isNotEmpty() }
             assertEquals(0, request().knownHash.size)
             assertTrue(errors.isEmpty())
         }
     }
 
     @Test
-    fun largeViewportIsFilledBeforeItsFirstTilesAreRefreshed() {
+    fun fullBatchesFillTheViewportWithoutAnArtificialDelay() {
         sync().use { sync ->
             val session = offer("large-world")
-            val positions = List(128) { TilePos(it % 16, it / 16) }
+            val positions = List(2048) { TilePos(it % 64, it / 64) }
             sync.offer(session)
-            var requests = 0
-            for (index in positions.indices) {
-                // The GUI rebuilds an equal visible list on every tick.
-                sync.view(true, positions.toList())
-                val now = 10000L + index * 150
-                sync.tick(now)
-                pump(now) { sent.filterIsInstance<Wire.Request>().size > requests }
-                requests++
-                val request = request()
-                assertEquals(positions[index], request.pos, "an expired near tile must not starve an unrequested visible tile")
-                sync.receive(Wire.Status(session.session, request.requestId, request.pos, Wire.Result.MISSING), now)
+            sync.view(true, positions)
+            var count = 0
+            repeat(32) { batch ->
+                sync.tick(10000L + batch * 50)
+                pump(10000L + batch * 50) { requests().size == count + Wire.MAX_BATCH }
+                val next = requests().drop(count)
+                assertEquals(positions.subList(count, count + 64), next.map { it.pos })
+                count += next.size
+                next.forEach { sync.receive(Wire.Status(session.session, it.requestId, it.pos, Wire.Result.MISSING), 10000L + batch * 50) }
             }
-            sync.tick(10000L + positions.size * 150)
-            pump(10000L + positions.size * 150) { sent.filterIsInstance<Wire.Request>().size > requests }
-            assertEquals(positions.first(), request().pos)
+            assertEquals(positions, requests().map { it.pos })
+            assertEquals(32, sent.filterIsInstance<Wire.BatchRequest>().size)
             assertTrue(errors.isEmpty())
+        }
+    }
+
+    @Test
+    fun outstandingWindowIsBoundedAndAnOldViewportIsCancelledImmediately() {
+        sync().use { sync ->
+            val session = offer("bounded")
+            sync.offer(session)
+            sync.view(true, List(512) { TilePos(it, 0) })
+            sync.tick(10000)
+            pump(10000) { requests().size == 64 }
+            sync.tick(10050)
+            pump(10050) { requests().size == 128 }
+            sync.tick(10100)
+            assertEquals(128, requests().size)
+            sync.view(true, listOf(TilePos(-1, -1, 2)))
+            assertEquals(128, sent.filterIsInstance<Wire.Ack>().size)
+            sync.tick(10150)
+            pump(10150) { requests().size == 129 }
+            assertEquals(TilePos(-1, -1, 2), request().pos)
         }
     }
 
@@ -153,14 +177,14 @@ class SessionTest {
         sync().use { sync ->
             val session = offer("panning-world")
             sync.offer(session)
-            sync.view(true, List(4) { TilePos(it, 0) })
+            sync.view(true, listOf(TilePos(0, 0)))
             sync.tick(10000)
-            pump(10000) { sent.any { it is Wire.Request } }
+            pump(10000) { requests().isNotEmpty() }
             val first = request()
             sync.receive(Wire.Status(session.session, first.requestId, first.pos, Wire.Result.MISSING), 10000)
-            sync.view(true, List(4) { TilePos(100 + it, 100) })
+            sync.view(true, listOf(TilePos(100, 100)))
             sync.tick(10150)
-            pump(10150) { sent.filterIsInstance<Wire.Request>().size == 2 }
+            pump(10150) { requests().size == 2 }
             assertEquals(TilePos(100, 100), request().pos)
             assertTrue(errors.isEmpty())
         }
@@ -177,12 +201,12 @@ class SessionTest {
             sync.view(true, listOf(pos))
             val now = System.currentTimeMillis()
             sync.tick(now)
-            pump { sent.any { it is Wire.Request } }
+            pump { requests().isNotEmpty() }
             val original = displayed.last()
             val first = request()
             sync.receive(Wire.Status(session.session, first.requestId, pos, Wire.Result.UNCHANGED), now)
             sync.tick(now + 11000)
-            pump(now + 11000) { sent.filterIsInstance<Wire.Request>().size == 2 }
+            pump(now + 11000) { requests().size == 2 }
             assertSame(original, displayed.last(), "conditional refresh must not rebuild native textures from an identical cache entry")
             assertArrayEquals(encoded.hash, request().knownHash)
             assertTrue(errors.isEmpty())
@@ -200,7 +224,7 @@ class SessionTest {
             sync.view(true, positions)
             sync.tick(10000)
             pump(10000) { positionsDisplayed.containsAll(positions) }
-            assertEquals(1, sent.filterIsInstance<Wire.Request>().size)
+            assertEquals(48, requests().size)
             assertTrue(deleted.isEmpty())
             assertTrue(errors.isEmpty())
         }
@@ -215,7 +239,7 @@ class SessionTest {
             sync.offer(session)
             sync.view(true, listOf(pos))
             sync.tick(10000)
-            pump(10000) { displayed.isNotEmpty() && sent.any { it is Wire.Request } }
+            pump(10000) { displayed.isNotEmpty() && requests().isNotEmpty() }
             val snapshot = displayed.last()
             val first = request()
             sync.receive(Wire.Status(session.session, first.requestId, pos, Wire.Result.UNCHANGED), 10000)
@@ -240,7 +264,7 @@ class SessionTest {
             sync.offer(session)
             sync.view(true, listOf(pos))
             sync.tick(10000)
-            pump(10000) { sent.any { it is Wire.Request } }
+            pump(10000) { requests().isNotEmpty() }
             sync.receive(part(request(), encoded()), 10000)
             pump(10000) { displayed.isNotEmpty() }
         }
@@ -251,7 +275,7 @@ class SessionTest {
             restarted.offer(session)
             restarted.view(true, listOf(pos))
             restarted.tick(20000)
-            pump(20000) { displayed.isNotEmpty() && sent.any { it is Wire.Request } }
+            pump(20000) { displayed.isNotEmpty() && requests().isNotEmpty() }
             assertArrayEquals(encoded().hash, request().knownHash)
             assertEquals(0xff125633.toInt(), displayed.last().color(0))
             assertTrue(errors.isEmpty())
@@ -276,7 +300,7 @@ class SessionTest {
             sync.offer(session)
             sync.view(true, listOf(pos))
             sync.tick(10000)
-            pump(10000) { sent.any { it is Wire.Request } && displayed.isNotEmpty() }
+            pump(10000) { requests().isNotEmpty() && displayed.isNotEmpty() }
             val old = displayed.last()
             val request = request()
             val count = (next.body.size + Wire.FRAGMENT - 1) / Wire.FRAGMENT

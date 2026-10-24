@@ -29,6 +29,23 @@ class ProviderFixture :
     override fun resolve(world: MapProvider.WorldRef): Optional<MapProvider.MapRef> =
         Optional.of(MapProvider.MapRef(world.uid.toString(), "1"))
 
+    override fun readScaled(map: MapProvider.MapRef, tileX: Int, tileZ: Int, level: Int): Optional<MapProvider.SurfaceTile> {
+        if (System.getenv("MINIMAP_TEST_COARSE") ==
+            "true"
+        ) {
+            return Optional.of(
+                MapProvider.SurfaceTile(
+                    IntArray(4096) {
+                        0xffe04090.toInt()
+                    },
+                    IntArray(4096) { 71 },
+                    ByteArray(4096) { 12 },
+                ),
+            )
+        }
+        return super.readScaled(map, tileX, tileZ, level)
+    }
+
     override fun read(map: MapProvider.MapRef, tileX: Int, tileZ: Int): Optional<MapProvider.SurfaceTile> {
         val stability = java.lang.Boolean.getBoolean("minimap.fixture.stability")
         if ((tileX != 10 || tileZ != 10) && !(stability && tileX in -3..3 && tileZ in -3..3)) return Optional.empty()

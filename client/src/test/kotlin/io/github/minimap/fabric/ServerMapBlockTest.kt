@@ -1,5 +1,6 @@
 package io.github.minimap.fabric
 
+import io.github.minimap.client.CacheIdentity
 import io.github.minimap.protocol.TileData
 import net.minecraft.SharedConstants
 import net.minecraft.server.Bootstrap
@@ -32,7 +33,7 @@ class ServerMapBlockTest {
     }
 
     @Test
-    fun conditionalReplayAndLiveExplorationDoNotRewriteNativeTiles() {
+    fun verifiedServerUpdateReplacesLocallyExploredPixels() {
         val source = samples(101)
         val tile = MapTile(null, 0, 0)
         assertTrue(needsServerUpdate(tile, source, false))
@@ -41,8 +42,26 @@ class ServerMapBlockTest {
         val live = tile.getBlock(0, 0)
         live.write(Blocks.DIRT.defaultBlockState(), 105, 105, Biomes.PLAINS, 7, false, false)
         tile.importServerSamples(samples(99), 0, 0, false)
-        assertEquals(105, live.height)
-        assertEquals(Blocks.DIRT.defaultBlockState(), live.state)
+        assertEquals(99, tile.getBlock(0, 0).height)
+        assertTrue((tile.getBlock(0, 0) as ServerMapBlock).serverOwned)
+    }
+
+    @Test
+    fun activeServerSessionKeepsItsSamplesAuthoritativeUntilRevoked() {
+        val identity = MiniMapClient::class.java.getDeclaredField("identity").apply { isAccessible = true }
+        try {
+            identity.set(null, CacheIdentity("server", "world", "epoch"))
+            val block = ServerMapBlock(samples(101), 0)
+            block.write(Blocks.DIRT.defaultBlockState(), 105, 105, Biomes.PLAINS, 7, false, false)
+            assertTrue(block.serverOwned)
+            assertEquals(101, block.height)
+            identity.set(null, null)
+            block.write(Blocks.DIRT.defaultBlockState(), 105, 105, Biomes.PLAINS, 7, false, false)
+            assertFalse(block.serverOwned)
+            assertEquals(105, block.height)
+        } finally {
+            identity.set(null, null)
+        }
     }
 
     @Test
@@ -78,14 +97,15 @@ class ServerMapBlockTest {
     }
 
     @Test
-    fun serverSamplesFillTheUnexploredBorderOfANativeTileWithoutReplacingNativePixels() {
+    fun serverSamplesReplaceNativePixelsAsWellAsUnexploredBorders() {
         val tile = MapTile(null, 0, 0)
         val native = MapBlock().apply { write(Blocks.DIRT.defaultBlockState(), 105, 105, Biomes.PLAINS, 7, false, false) }
         tile.setBlock(7, 7, native)
         val source = samples(101)
         assertTrue(needsServerUpdate(tile, source, false))
         tile.importServerSamples(source, 0, 0, false)
-        assertEquals(native, tile.getBlock(7, 7))
+        assertTrue(tile.getBlock(7, 7) is ServerMapBlock)
+        assertEquals(101, tile.getBlock(7, 7).height)
         assertTrue(tile.getBlock(0, 0) is ServerMapBlock)
         assertFalse(needsServerUpdate(tile, source, false))
     }

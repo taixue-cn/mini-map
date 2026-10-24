@@ -21,7 +21,15 @@ class TileCache(private val root: Path, private val maxBytes: Long) {
 
     private var writes = 0
 
-    private fun path(identity: CacheIdentity, pos: TilePos): Path = root.resolve(identity.key()).resolve("${pos.x}_${pos.z}.tile")
+    private fun path(identity: CacheIdentity, pos: TilePos): Path = root.resolve(identity.key()).resolve(
+        if (pos.level ==
+            0
+        ) {
+            "${pos.x}_${pos.z}.tile"
+        } else {
+            "${pos.x}_${pos.z}_l${pos.level}.tile"
+        },
+    )
 
     @Throws(IOException::class)
     fun read(identity: CacheIdentity, pos: TilePos): Optional<Entry> {

@@ -5,7 +5,7 @@ Optional server-provided maps for Xaero World Map. One Kotlin repository, two Gr
 - `server`: Paper plugin, provider API, server transport and tests. Paper **1.21.4 / Java 21** and **26.3 / Java 25**.
 - `client`: Fabric client mod, local cache, Xaero integration and tests. Minecraft **26.3 / Java 25**, Xaero World Map **1.47.1**.
 
-`shared/src` is compiled into both modules; protocol source has one owner and no duplicated copy. Java is limited to three Sponge Mixin/accessor classes. Kotlin and Kotlin DSL use the official IntelliJ Kotlin style, enforced by Spotless/ktlint and `.editorconfig`.
+`shared/src` is compiled into both modules; protocol source has one owner and no duplicated copy. Java is limited to Sponge Mixin/accessor classes. Kotlin and Kotlin DSL use the official IntelliJ Kotlin style, enforced by Spotless/ktlint and `.editorconfig`.
 
 ## Install
 
@@ -28,6 +28,6 @@ Use JDK 25:
 
 `main` pushes and pull requests build both modules and smoke-test Paper 1.21.4 and 26.3. A `v*` tag publishes both jars, the provider SDK and SHA-256 checksums through GitHub Actions Release. Both Paper smoke jobs load the server jar downloaded from that exact build artifact before release publication. Test fixture jars are excluded from releases.
 
-Both former repository histories are retained as ancestors of this monorepo. The v1 wire format and cache hashes remain compatible with the previously released Java alpha. Build paths and provider SDK distribution now belong here.
+Both former repository histories are retained as ancestors of this monorepo. The server retains v1 wire support for older clients; v2 adds 64-request batches and native coarse textures. Existing detailed cache hashes remain compatible with the previously released Java alpha. Build paths and provider SDK distribution now belong here.
 
 Default branch and active development: `main` in `taixue-cn/mini-map`. The former repositories remain available for release history.

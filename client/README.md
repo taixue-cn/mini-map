@@ -12,7 +12,7 @@ After entering a supported world, press **M**. The full-screen map downloads det
 
 Verified snapshots are restored from disk independently of network requests. Recent decoded views remain warm across panning and closing the map; refreshes keep the old image until a complete replacement passes its hash check. The client retains up to 2048 decoded tiles in memory, in addition to its disk cache.
 
-Server samples fill unexplored pixels, including holes around the edge of native exploration. Xaero's own observed pixels keep priority. Visible regions and up to 32 recent imported regions remain resident; native display textures can also be cached on disk. Imported placeholder blocks are excluded from native terrain saves even if Xaero's writer marks a mixed chunk for saving. Missing server tiles clear only imported pixels.
+Committed server samples replace both unexplored and locally explored pixels while the current-world handshake is active. Local snapshots are displayed immediately, then conditionally revalidated against the server; matching hashes avoid downloads. Visible regions and up to 32 recent imported regions remain resident; native display textures can also be cached on disk. Imported placeholder blocks are excluded from native terrain saves even if Xaero's writer marks a mixed chunk for saving. Missing server tiles clear only imported pixels.
 
 ## Cache identity and data
 
@@ -26,7 +26,7 @@ World/session changes reject old responses. The server grants access only while 
 
 - Xaero integration is deliberately pinned to **1.47.1**; unsupported versions disable synchronization before applying mixins.
 - Surface maps only. Cave layers keep normal Xaero behavior.
-- Detailed requests cover at most **32×32 tiles** of 64×64 blocks around the view center. There is no protocol LOD yet; at extreme zoom-out, pan to fetch other areas.
+- The **entire viewport** is requested in batches of up to 64 tiles with at most 128 outstanding requests and no artificial 150 ms pacing. At coarse zoom native Xaero texture levels use 64×64 samples for 128/256/512-block footprints; zooming back in fetches detail. Level-specific caches cannot overwrite detailed samples.
 - Portable samples are restored into native tiles while the map is open. Native texture caches are rebuildable; placeholder block states are not saved as authoritative terrain. Downloaded pixels are not Minecraft blocks.
 - Data freshness follows BlueMap's committed render plus the polling interval. This is not a live block-update stream.
 

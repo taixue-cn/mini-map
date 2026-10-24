@@ -13,6 +13,7 @@ class FixtureBootstrap : ClientModInitializer {
         val name = when (System.getenv("MINIMAP_TEST_MODE")) {
             "lifecycle" -> "LifecycleFixture"
             "stability" -> "StabilityFixture"
+            "coarse" -> "CoarseFixture"
             else -> "ClientFixture"
         }
         val fixture = Class.forName("io.github.minimap.fixture.$name").getDeclaredConstructor().newInstance()

@@ -33,7 +33,7 @@ class MapSync(
         1,
         0,
         TimeUnit.SECONDS,
-        ArrayBlockingQueue(16),
+        ArrayBlockingQueue(256),
         { action -> Thread(action, "minimap-cache").apply { isDaemon = true } },
         ThreadPoolExecutor.AbortPolicy(),
     )
@@ -48,7 +48,6 @@ class MapSync(
     private var sequence = 0
     private var renderCursor = 0
     private var requestCursor = 0
-    private var nextRequest = 0L
 
     @Volatile
     var offer: Wire.Offer? = null
@@ -70,7 +69,6 @@ class MapSync(
         cacheReads.clear()
         toDisplay.clear()
         checked.clear()
-        nextRequest = 0
         requestCursor = 0
     }
 
@@ -88,13 +86,18 @@ class MapSync(
             warmView = false
             return
         }
-        val nextVisible = positions.take(1024)
+        val nextVisible = positions
         val changed = visible != nextVisible
         if (changed) requestCursor = 0
         visible = nextVisible
         val keep = visible.toSet()
         toDisplay.retainAll(keep)
         checked.keys.retainAll(keep)
+        val abandoned = pending.filterValues { it.pos !in keep }.keys.toList()
+        for (id in abandoned) {
+            pending.remove(id)
+            sender(Wire.Ack(session.session, id))
+        }
         if (changed) {
             warmView = true
             for (pos in visible) {
@@ -139,7 +142,7 @@ class MapSync(
         loaded[pos] = if (existing != null && existing.encoded.hash.contentEquals(entry.encoded.hash)) existing else entry
         if (open && pos in visible) toDisplay += pos
         // Keep recent views warm without retaining an entire world's decoded samples in memory.
-        while (loaded.size > 2048) loaded.remove(loaded.keys.first { it !in visible })
+        while (loaded.size > maxOf(2048, visible.size)) loaded.remove(loaded.keys.firstOrNull { it !in visible } ?: break)
     }
 
     fun tick(now: Long) {
@@ -149,7 +152,7 @@ class MapSync(
             warmView = false
             warm(session, visible.filter { it !in loaded })
         }
-        val expired = pending.filterValues { now - it.start > 20000 }.keys.toList()
+        val expired = pending.filterValues { now - it.start > 125000 }.keys.toList()
         for (id in expired) {
             sender(Wire.Ack(session.session, id))
             pending.remove(id)
@@ -163,25 +166,28 @@ class MapSync(
             val pos = visible[Math.floorMod(renderCursor++, visible.size)]
             loaded[pos]?.let { display.tile(pos, it.tile) }
         }
-        if (warmView || now < nextRequest || pending.size >= 4) return
-        // Continue around the view so refreshes cannot starve tiles farther from its center.
+        if (warmView || cacheReads.isNotEmpty() || pending.size >= Wire.MAX_PENDING || visible.isEmpty()) return
+        val waiting = pending.values.mapTo(mutableSetOf()) { it.pos }
+        val requests = mutableListOf<Wire.Request>()
+        val limit = minOf(Wire.MAX_BATCH, Wire.MAX_PENDING - pending.size)
+        val fresh = visible.any { it !in checked && it !in waiting }
         for (offset in visible.indices) {
             val index = (requestCursor + offset) % visible.size
             val pos = visible[index]
-            if (now - checked.getOrDefault(pos, Long.MIN_VALUE / 2) < 10000 ||
-                pending.values.any { it.pos == pos }
+            if (pos in waiting || pos in cacheReads || (fresh && pos in checked) ||
+                now - checked.getOrDefault(pos, Long.MIN_VALUE / 2) < 10000
             ) {
                 continue
             }
-            if (pos in cacheReads) return
-            requestCursor = (index + 1) % visible.size
             val id = ++sequence
-            val request = Pending(pos, now, pos in loaded)
-            pending[id] = request
-            nextRequest = now + 150
-            sender(Wire.Request(session.session, id, pos, loaded[pos]?.encoded?.hash ?: byteArrayOf()))
-            break
+            pending[id] = Pending(pos, now, pos in loaded)
+            requests += Wire.Request(session.session, id, pos, loaded[pos]?.encoded?.hash ?: byteArrayOf())
+            if (requests.size == limit) {
+                requestCursor = (index + 1) % visible.size
+                break
+            }
         }
+        if (requests.isNotEmpty()) sender(Wire.BatchRequest(session.session, requests))
     }
 
     private fun active(session: Wire.Offer, id: Int, request: Pending): Boolean = open && offer === session && pending[id] === request

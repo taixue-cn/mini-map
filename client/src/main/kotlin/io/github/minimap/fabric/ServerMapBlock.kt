@@ -24,6 +24,7 @@ import xaero.map.world.MapDimension
 
 /** Render the supplied color directly; vanilla block colors cannot reproduce the server's resource pack. */
 internal class ServerMapBlock(val source: TileData, private val index: Int) : MapBlock() {
+    private val owner = MiniMapClient.identity()
     var serverOwned = true
         private set
 
@@ -41,8 +42,10 @@ internal class ServerMapBlock(val source: TileData, private val index: Int) : Ma
         glowing: Boolean,
         cave: Boolean,
     ) {
+        // Keep the server snapshot authoritative while its optional handshake is active.
+        if (serverOwned && owner != null && owner == MiniMapClient.identity()) return
         super.write(state, height, topHeight, biome, light, glowing, cave)
-        // Xaero has observed this block in the live world; subsequent colors must use that newer native sample.
+        // Without a server session, Xaero resumes ordinary local exploration.
         serverOwned = false
     }
 

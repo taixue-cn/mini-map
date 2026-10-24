@@ -41,17 +41,22 @@ class MiniMapServer :
         fun matches(current: Binding?): Boolean = current != null && provider === current.provider && this == current
     }
 
-    private class Session(val binding: Binding, rate: Double) {
+    private class Session(val binding: Binding, rate: Double, val version: Int) {
         val id: UUID = UUID.randomUUID()
         val bytes = TokenBucket(rate, maxOf(rate, Wire.MAX_FRAME.toDouble()), System.nanoTime())
-        val requests = TokenBucket(8.0, 8.0, System.nanoTime())
+        val requests = TokenBucket(if (version == 1) 8.0 else 2048.0, if (version == 1) 8.0 else 2048.0, System.nanoTime())
         val pending = mutableMapOf<Int, Long>()
         val outbound = ArrayDeque<Outbound>()
         var open = false
         var generation = 0
+        var requestsRead = 0L
+        var changed = 0L
+        var missing = 0L
+        var retry = 0L
+        var sentBytes = 0L
     }
 
-    private data class Outbound(val bytes: ByteArray, val generation: Int)
+    private data class Outbound(val bytes: ByteArray, val generation: Int, val requestId: Int)
     private data class Cached(val expires: Long, val data: TileCodec.Encoded?)
     private data class CacheKey(val provider: MapProvider, val map: MapProvider.MapRef, val pos: TilePos)
     private val sessions = mutableMapOf<UUID, Session>()
@@ -87,8 +92,8 @@ class MiniMapServer :
         blueMap = BlueMapProvider(this)
         val rate = maxOf(Wire.MAX_FRAME.toDouble(), config.getDouble("total-bytes-per-second", 4194304.0))
         total = TokenBucket(rate, rate, System.nanoTime())
-        server.messenger.registerIncomingPluginChannel(this, Wire.CHANNEL, this)
-        server.messenger.registerOutgoingPluginChannel(this, Wire.CHANNEL)
+        for (channel in listOf(Wire.CHANNEL, Wire.LEGACY_CHANNEL)) server.messenger.registerIncomingPluginChannel(this, channel, this)
+        for (channel in listOf(Wire.CHANNEL, Wire.LEGACY_CHANNEL)) server.messenger.registerOutgoingPluginChannel(this, channel)
         server.pluginManager.registerEvents(this, this)
         server.scheduler.runTaskTimer(this, Runnable { tick() }, 1, 1)
         logger.info("MiniMap Server enabled; world-scoped optional protocol v${Wire.VERSION}")
@@ -113,7 +118,7 @@ class MiniMapServer :
 
     private fun revoke(player: Player) {
         val previous = sessions.remove(player.uniqueId) ?: return
-        send(player, Wire.Revoke(previous.id))
+        send(player, Wire.Revoke(previous.id), previous.version)
     }
 
     private fun permitted(player: Player): Boolean {
@@ -168,23 +173,25 @@ class MiniMapServer :
     }
 
     override fun onPluginMessageReceived(channel: String, player: Player, data: ByteArray) {
-        if (channel != Wire.CHANNEL) return
+        if (channel != Wire.CHANNEL && channel != Wire.LEGACY_CHANNEL) return
+        val version = if (channel == Wire.LEGACY_CHANNEL) 1 else Wire.VERSION
         try {
-            val message = Wire.decode(data)
+            val message = Wire.decode(data, version)
             if (message is Wire.Hello) {
                 val now = System.nanoTime()
                 if (now - helloAt.getOrDefault(player.uniqueId, 0L) < 1_000_000_000L) return
                 helloAt[player.uniqueId] = now
-                if (message.version != Wire.VERSION) return
+                if (message.version != version) return
                 revoke(player)
                 val binding = resolve(player) ?: return
                 val rate = maxOf(Wire.MAX_FRAME.toDouble(), config.getDouble("player-bytes-per-second", 131072.0))
-                val session = Session(binding, rate)
+                val session = Session(binding, rate, version)
                 sessions[player.uniqueId] = session
-                send(player, Wire.Offer(session.id, serverId, binding.worldId, binding.epoch, binding.dimension))
+                send(player, Wire.Offer(session.id, serverId, binding.worldId, binding.epoch, binding.dimension), version)
                 return
             }
             val session = sessions[player.uniqueId] ?: return
+            if (session.version != version) return
             if (!current(player, session)) {
                 revoke(player)
                 return
@@ -200,6 +207,9 @@ class MiniMapServer :
                 }
                 message is Wire.Ack && message.session == session.id -> session.pending.remove(message.requestId)
                 message is Wire.Request && message.session == session.id && session.open -> request(player, session, message)
+                message is Wire.BatchRequest && message.session == session.id && session.open && version >= 2 -> {
+                    for (request in message.requests) request(player, session, request)
+                }
             }
         } catch (error: IOException) {
             logger.fine("Rejected malformed MiniMap message: ${error.message}")
@@ -210,7 +220,12 @@ class MiniMapServer :
 
     private fun request(player: Player, session: Session, request: Wire.Request) {
         if (request.knownHash.isNotEmpty() && request.knownHash.size != 32) return
-        if (session.pending.size >= 4 || request.requestId in session.pending || !session.requests.take(1, System.nanoTime())) return
+        if (session.pending.size >= (if (session.version == 1) 4 else Wire.MAX_PENDING) || request.requestId in session.pending ||
+            !session.requests.take(1, System.nanoTime())
+        ) {
+            return
+        }
+        session.requestsRead++
         session.pending[request.requestId] = System.nanoTime()
         val generation = session.generation
         load(CacheKey(session.binding.provider, session.binding.map, request.pos)).whenComplete { result, error ->
@@ -224,6 +239,14 @@ class MiniMapServer :
                         return@Runnable
                     }
                     val tile = result?.data
+                    if (error != null) {
+                        session.retry++
+                        logger.fine("MiniMap tile read failed: $error")
+                    } else if (tile == null) {
+                        session.missing++
+                    } else if (!MessageDigest.isEqual(tile.hash, request.knownHash)) {
+                        session.changed++
+                    }
                     when {
                         error != null -> enqueue(session, Wire.Status(session.id, request.requestId, request.pos, Wire.Result.RETRY))
                         tile == null -> enqueue(session, Wire.Status(session.id, request.requestId, request.pos, Wire.Result.MISSING))
@@ -247,7 +270,7 @@ class MiniMapServer :
                 try {
                     CompletableFuture.supplyAsync({
                         try {
-                            val samples = key.provider.read(key.map, key.pos.x, key.pos.z).orElse(null)
+                            val samples = key.provider.readScaled(key.map, key.pos.x, key.pos.z, key.pos.level).orElse(null)
                             val tile = samples?.let { TileData(it.argb(), it.height(), it.blockLight()) }
                             Cached(System.nanoTime() + 2_000_000_000L, tile?.takeUnless { it.empty() }?.let(TileCodec::encode))
                         } catch (error: IOException) {
@@ -263,15 +286,29 @@ class MiniMapServer :
 
     private fun enqueue(session: Session, message: Wire.Message) {
         try {
-            if (session.outbound.size < 32) session.outbound.addLast(Outbound(Wire.encode(message), session.generation))
+            if (session.outbound.size <
+                Wire.MAX_PENDING * Wire.MAX_PARTS
+            ) {
+                session.outbound.addLast(
+                    Outbound(
+                        Wire.encode(message, session.version),
+                        session.generation,
+                        when (message) {
+                            is Wire.Part -> message.requestId
+                            is Wire.Status -> message.requestId
+                            else -> error("Unexpected queued message")
+                        },
+                    ),
+                )
+            }
         } catch (error: IOException) {
             logger.warning("Cannot encode MiniMap response: $error")
         }
     }
 
-    private fun send(player: Player, message: Wire.Message) {
+    private fun send(player: Player, message: Wire.Message, version: Int) {
         try {
-            player.sendPluginMessage(this, Wire.CHANNEL, Wire.encode(message))
+            player.sendPluginMessage(this, if (version == 1) Wire.LEGACY_CHANNEL else Wire.CHANNEL, Wire.encode(message, version))
         } catch (error: IOException) {
             logger.fine("MiniMap send failed: $error")
         } catch (error: IllegalArgumentException) {
@@ -291,11 +328,18 @@ class MiniMapServer :
                 revoke(player)
                 continue
             }
-            session.pending.entries.removeIf { now - it.value > 15_000_000_000L }
+            if (ticks % 600 == 0 && session.open &&
+                session.requestsRead > 0
+            ) {
+                logger.info(
+                    "MiniMap ${player.name} world=${player.world.name} protocol=${session.version} requested=${session.requestsRead} changed=${session.changed} missing=${session.missing} retry=${session.retry} bytes=${session.sentBytes} pending=${session.pending.size}",
+                )
+            }
+            session.pending.entries.removeIf { now - it.value > 120_000_000_000L }
             var sent = 0
-            while (sent < 4 && session.outbound.isNotEmpty()) {
+            while (sent < 32 && session.outbound.isNotEmpty()) {
                 val next = session.outbound.first()
-                if (next.generation != session.generation) {
+                if (next.generation != session.generation || next.requestId !in session.pending) {
                     session.outbound.removeFirst()
                     continue
                 }
@@ -304,7 +348,8 @@ class MiniMapServer :
                 session.bytes.take(size, now)
                 total.take(size, now)
                 session.outbound.removeFirst()
-                player.sendPluginMessage(this, Wire.CHANNEL, next.bytes)
+                player.sendPluginMessage(this, if (session.version == 1) Wire.LEGACY_CHANNEL else Wire.CHANNEL, next.bytes)
+                session.sentBytes += size
                 sent++
             }
         }

@@ -48,7 +48,7 @@ class MiniMapClient : ClientModInitializer {
         )
         ClientPlayNetworking.registerGlobalReceiver(MapFrame.TYPE) { frame, context ->
             try {
-                val message = Wire.decode(frame.bytes)
+                val message = Wire.decode(frame.bytes, Wire.VERSION)
                 context.client().execute { receive(message) }
             } catch (error: IOException) {
                 error(error)

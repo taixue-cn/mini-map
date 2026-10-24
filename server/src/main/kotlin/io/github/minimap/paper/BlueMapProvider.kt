@@ -52,21 +52,25 @@ internal class BlueMapProvider(private val plugin: JavaPlugin?) : MapProvider {
         return Optional.empty()
     }
 
-    override fun read(map: MapProvider.MapRef, tileX: Int, tileZ: Int): Optional<MapProvider.SurfaceTile> {
+    override fun read(map: MapProvider.MapRef, tileX: Int, tileZ: Int): Optional<MapProvider.SurfaceTile> = readScaled(map, tileX, tileZ, 0)
+
+    override fun readScaled(map: MapProvider.MapRef, tileX: Int, tileZ: Int, level: Int): Optional<MapProvider.SurfaceTile> {
+        require(level in 0..3)
+        val step = 1 shl level
         val binding = bindings[map.id] ?: return Optional.empty()
         val colors = IntArray(4096)
         val heights = IntArray(4096)
         val lights = ByteArray(4096)
-        val baseX = Math.multiplyExact(tileX, 64)
-        val baseZ = Math.multiplyExact(tileZ, 64)
+        val baseX = Math.multiplyExact(tileX, 64 * step)
+        val baseZ = Math.multiplyExact(tileZ, 64 * step)
         var present = false
         try {
             val grid = call(binding.storage, "lowresTiles", arrayOf(Int::class.javaPrimitiveType!!), 1)
             val images = mutableMapOf<Long, BufferedImage?>()
             for (z in 0 until 64) {
                 for (x in 0 until 64) {
-                    val blockX = baseX + x
-                    val blockZ = baseZ + z
+                    val blockX = baseX + x * step
+                    val blockZ = baseZ + z * step
                     val cellX = Math.floorDiv(blockX, binding.width)
                     val cellZ = Math.floorDiv(blockZ, binding.depth)
                     val key = (cellX.toLong() shl 32) or (cellZ.toLong() and 0xffffffffL)
