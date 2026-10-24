@@ -56,6 +56,11 @@ internal class XaeroBridge : MiniMapClient.Bridge {
                 }
             }
         }
+        // Xaero releases unvisited region source buffers after one second; every visible region must stay visited.
+        val processor = screen.mapProcessor
+        result.map { (it.x shr 3) to (it.z shr 3) }.distinct().forEach { (x, z) ->
+            processor.getLeafMapRegion(Int.MAX_VALUE, x, z, false)?.registerVisit()
+        }
         return result.sortedBy { (it.x - centerX).toLong() * (it.x - centerX) + (it.z - centerZ).toLong() * (it.z - centerZ) }
     }
 
@@ -65,7 +70,6 @@ internal class XaeroBridge : MiniMapClient.Bridge {
 
     private fun update(pos: TilePos, data: TileData, remove: Boolean) {
         val processor = processor() ?: return
-        val level = client.level ?: return
         if (!current(processor)) return
         synchronized(processor) {
             val region = processor.getLeafMapRegion(Int.MAX_VALUE, pos.x shr 3, pos.z shr 3, !remove) ?: return
@@ -86,13 +90,11 @@ internal class XaeroBridge : MiniMapClient.Bridge {
                 val changes = mutableListOf<Pair<Int, Int>>()
                 for (tileZ in 0 until 4) {
                     for (tileX in 0 until 4) {
-                        // Live Minecraft chunks belong to Xaero's writer, whose samples are newer than saved server terrain.
                         val tile = chunk?.getTile(tileX, tileZ)
                         val changed = needsServerUpdate(
                             tile,
                             data,
                             remove,
-                            level.chunkSource.hasChunk(pos.x * 4 + tileX, pos.z * 4 + tileZ),
                         )
                         if (changed) changes += tileX to tileZ
                     }
@@ -107,14 +109,14 @@ internal class XaeroBridge : MiniMapClient.Bridge {
                 region.pushWriterPause()
                 try {
                     for ((tileX, tileZ) in changes) {
-                        val tile = if (remove) {
-                            chunk.getTile(tileX, tileZ) ?: continue
-                        } else {
+                        val tile = chunk.getTile(tileX, tileZ) ?: if (!remove) {
                             MapTile(null, pos.x * 4 + tileX, pos.z * 4 + tileZ).apply {
                                 isLoaded = true
                                 setWrittenOnce(true)
                                 worldInterpretationVersion = MapTile.CURRENT_WORLD_INTERPRETATION_VERSION
                             }
+                        } else {
+                            continue
                         }
                         tile.importServerSamples(data, tileX * 16, tileZ * 16, remove)
                         chunk.setTile(tileX, tileZ, tile, processor.blockStateShortShapeCache, processor)
@@ -127,7 +129,8 @@ internal class XaeroBridge : MiniMapClient.Bridge {
                     chunk.unincludeInSave()
                     region.setHasHadTerrain()
                     region.isAllCachePrepared = false
-                    region.setShouldCache(false, "MiniMap update")
+                    region.setShouldCache(true, "MiniMap update")
+                    region.setRecacheHasBeenRequested(true, "MiniMap update")
                     chunk.updateBuffers(
                         processor,
                         processor.worldBlockTintProvider,

@@ -1,3 +1,13 @@
+# Persistent viewport cache and native border regressions — 2026-10-24
+
+The client restores visible disk snapshots in a separate bounded storage task, before conditional network requests. Recent decoded snapshots survive panning and closing the screen. Refreshes retain the displayed snapshot until all fragments pass the canonical hash check; server MISSING remains an authoritative deletion, rather than a refresh placeholder. Only the current world/epoch is served, with the existing 512 MiB portable disk-cache limit and up to 2048 decoded tiles retained in memory.
+
+The Xaero importer merges server samples into unexplored pixels instead of replacing native 16×16 tiles or skipping entire loaded Minecraft chunks. Every visible region is visited on each view update, so Xaero's one-second source cleanup cannot outrun a single-tile replay cursor. Native display texture caching is enabled. An optional-version-gated Mixin excludes mixed placeholder chunks from native terrain serialization, including after native writes mark the chunk for saving.
+
+Spotless and the full alpha.6 build pass 31 JVM tests. Added checks cover a 48-tile disk view restored without network responses, immediate pan/close return, a fresh sync instance restoring downloaded disk data, complete-fragment replacement, filling a partial native tile and placeholder ownership during saves. Server/provider runtime classes are byte-identical to alpha.5; fixtures are excluded from distributions.
+
+A real Paper 26.3/Fabric 26.3/Xaero 1.47.1 comparison captured the display continuously through steady, pan-return, close-reopen and native border phases. Both clients completed the scripted phases at 3×. The same 48×336-pixel border strip contained 16128 black pixels with alpha.5 and zero with the revised importer. This reproduces the missing native border, not every intermittent frame in the user's production GIF. Additional 0.802×/0.269× and content-replacement capture remains a separate check. Tests use an owned loopback server with deterministic provider samples; no production world, PostgreSQL or MinIO is modified by these checks.
+
 # Native surface refresh regressions — 2026-10-24
 
 An unchanged cached response previously decoded a new snapshot on each refresh, defeating the native import identity check. A regression failed against the previous implementation and passes with the decoded cache entry retained in memory. Native samples now pass height/top-height/block-light in Xaero's actual parameter order; the previous implementation supplied light as top-height and zero as light.

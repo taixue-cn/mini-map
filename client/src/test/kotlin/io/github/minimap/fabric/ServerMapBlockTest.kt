@@ -35,12 +35,12 @@ class ServerMapBlockTest {
     fun conditionalReplayAndLiveExplorationDoNotRewriteNativeTiles() {
         val source = samples(101)
         val tile = MapTile(null, 0, 0)
-        assertTrue(needsServerUpdate(tile, source, false, false))
+        assertTrue(needsServerUpdate(tile, source, false))
         tile.importServerSamples(source, 0, 0, false)
-        assertFalse(needsServerUpdate(tile, source, false, false))
+        assertFalse(needsServerUpdate(tile, source, false))
         val live = tile.getBlock(0, 0)
         live.write(Blocks.DIRT.defaultBlockState(), 105, 105, Biomes.PLAINS, 7, false, false)
-        assertFalse(needsServerUpdate(tile, samples(99), false, true))
+        tile.importServerSamples(samples(99), 0, 0, false)
         assertEquals(105, live.height)
         assertEquals(Blocks.DIRT.defaultBlockState(), live.state)
     }
@@ -54,13 +54,13 @@ class ServerMapBlockTest {
         val promoted = tile.getBlock(1, 0) as ServerMapBlock
         promoted.write(Blocks.DIRT.defaultBlockState(), 106, 106, Biomes.PLAINS, 7, false, false)
         val empty = TileData(IntArray(4096), IntArray(4096), ByteArray(4096))
-        assertTrue(needsServerUpdate(tile, empty, true, false))
+        assertTrue(needsServerUpdate(tile, empty, true))
         tile.importServerSamples(empty, 0, 0, true)
         assertEquals(native, tile.getBlock(0, 0))
         assertEquals(promoted, tile.getBlock(1, 0))
         assertEquals(106, tile.getBlock(1, 0).height)
         assertEquals(0, (tile.getBlock(2, 0) as ServerMapBlock).source.color(2))
-        assertFalse(needsServerUpdate(tile, empty, true, false))
+        assertFalse(needsServerUpdate(tile, empty, true))
     }
 
     @Test
@@ -71,10 +71,34 @@ class ServerMapBlockTest {
         val block = tile.getBlock(0, 0) as ServerMapBlock
         assertEquals(first.color(32 * 64 + 48), block.source.color(32 * 64 + 48))
         val updated = samples(110)
-        assertTrue(needsServerUpdate(tile, updated, false, false))
+        assertTrue(needsServerUpdate(tile, updated, false))
         tile.importServerSamples(updated, 48, 32, false)
         assertEquals(110, tile.getBlock(0, 0).height)
-        assertFalse(needsServerUpdate(tile, updated, false, false))
+        assertFalse(needsServerUpdate(tile, updated, false))
+    }
+
+    @Test
+    fun serverSamplesFillTheUnexploredBorderOfANativeTileWithoutReplacingNativePixels() {
+        val tile = MapTile(null, 0, 0)
+        val native = MapBlock().apply { write(Blocks.DIRT.defaultBlockState(), 105, 105, Biomes.PLAINS, 7, false, false) }
+        tile.setBlock(7, 7, native)
+        val source = samples(101)
+        assertTrue(needsServerUpdate(tile, source, false))
+        tile.importServerSamples(source, 0, 0, false)
+        assertEquals(native, tile.getBlock(7, 7))
+        assertTrue(tile.getBlock(0, 0) is ServerMapBlock)
+        assertFalse(needsServerUpdate(tile, source, false))
+    }
+
+    @Test
+    fun placeholderSamplesRemainExcludedFromTerrainSavesUntilExploredNatively() {
+        val tile = MapTile(null, 0, 0)
+        assertFalse(tile.hasServerSamples())
+        val block = ServerMapBlock(samples(101), 0)
+        tile.setBlock(0, 0, block)
+        assertTrue(tile.hasServerSamples())
+        block.write(Blocks.DIRT.defaultBlockState(), 105, 105, Biomes.PLAINS, 7, false, false)
+        assertFalse(tile.hasServerSamples())
     }
 
     private fun samples(height: Int) = TileData(IntArray(4096) { 0xff336633.toInt() }, IntArray(4096) { height }, ByteArray(4096) { 12 })

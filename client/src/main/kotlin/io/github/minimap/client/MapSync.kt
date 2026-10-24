@@ -23,7 +23,7 @@ class MapSync(
         fun missing(pos: TilePos)
     }
 
-    private class Pending(val pos: TilePos, val start: Long) {
+    private class Pending(val pos: TilePos, val start: Long, val cached: Boolean) {
         val assembly = TileAssembly()
         var decoding = false
     }
@@ -39,13 +39,18 @@ class MapSync(
     )
     private val pending = mutableMapOf<Int, Pending>()
     private val loaded = linkedMapOf<TilePos, TileCache.Entry>()
+    private val cacheReads = mutableSetOf<TilePos>()
+    private val toDisplay = linkedSetOf<TilePos>()
     private val checked = mutableMapOf<TilePos, Long>()
     private var visible = emptyList<TilePos>()
     private var open = false
+    private var warmView = false
     private var sequence = 0
     private var renderCursor = 0
     private var requestCursor = 0
     private var nextRequest = 0L
+
+    @Volatile
     var offer: Wire.Offer? = null
         private set
 
@@ -58,9 +63,12 @@ class MapSync(
     fun reset() {
         offer = null
         open = false
+        warmView = false
         visible = emptyList()
         pending.clear()
         loaded.clear()
+        cacheReads.clear()
+        toDisplay.clear()
         checked.clear()
         nextRequest = 0
         requestCursor = 0
@@ -76,57 +84,102 @@ class MapSync(
         }
         if (!open) {
             visible = emptyList()
-            loaded.clear()
+            toDisplay.clear()
+            warmView = false
             return
         }
         val nextVisible = positions.take(1024)
-        if (visible != nextVisible) requestCursor = 0
+        val changed = visible != nextVisible
+        if (changed) requestCursor = 0
         visible = nextVisible
         val keep = visible.toSet()
-        loaded.keys.retainAll(keep)
+        toDisplay.retainAll(keep)
         checked.keys.retainAll(keep)
+        if (changed) {
+            warmView = true
+            for (pos in visible) {
+                val entry = loaded.remove(pos) ?: continue
+                loaded[pos] = entry
+                toDisplay += pos
+            }
+        }
+    }
+
+    /** Restore local snapshots independently of the network request rate. */
+    private fun warm(session: Wire.Offer, positions: List<TilePos>) {
+        if (positions.isEmpty()) return
+        cacheReads.addAll(positions)
+        submit({
+            for (pos in positions) {
+                if (offer !== session) break
+                val entry = try {
+                    cache.read(CacheIdentity.of(session), pos).orElse(null)
+                } catch (error: IOException) {
+                    errors(error)
+                    null
+                }
+                clientThread(
+                    Runnable {
+                        if (offer !== session) return@Runnable
+                        cacheReads.remove(pos)
+                        if (entry != null && pos !in loaded) remember(pos, entry)
+                    },
+                )
+            }
+        }, {
+            if (offer === session) {
+                cacheReads.removeAll(positions.toSet())
+                warmView = true
+            }
+        })
+    }
+
+    private fun remember(pos: TilePos, entry: TileCache.Entry) {
+        val existing = loaded.remove(pos)
+        loaded[pos] = if (existing != null && existing.encoded.hash.contentEquals(entry.encoded.hash)) existing else entry
+        if (open && pos in visible) toDisplay += pos
+        // Keep recent views warm without retaining an entire world's decoded samples in memory.
+        while (loaded.size > 2048) loaded.remove(loaded.keys.first { it !in visible })
     }
 
     fun tick(now: Long) {
         val session = offer ?: return
         if (!open) return
+        if (warmView && cacheReads.isEmpty()) {
+            warmView = false
+            warm(session, visible.filter { it !in loaded })
+        }
         val expired = pending.filterValues { now - it.start > 20000 }.keys.toList()
         for (id in expired) {
             sender(Wire.Ack(session.session, id))
             pending.remove(id)
         }
-        if (loaded.isNotEmpty()) {
-            val entry = loaded.entries.toList()[Math.floorMod(renderCursor++, loaded.size)]
-            display.tile(entry.key, entry.value.tile)
+        repeat(8) {
+            val pos = toDisplay.firstOrNull() ?: return@repeat
+            toDisplay.remove(pos)
+            loaded[pos]?.let { display.tile(pos, it.tile) }
         }
-        if (now < nextRequest || pending.size >= 4) return
+        if (visible.isNotEmpty()) {
+            val pos = visible[Math.floorMod(renderCursor++, visible.size)]
+            loaded[pos]?.let { display.tile(pos, it.tile) }
+        }
+        if (warmView || now < nextRequest || pending.size >= 4) return
         // Continue around the view so refreshes cannot starve tiles farther from its center.
         for (offset in visible.indices) {
             val index = (requestCursor + offset) % visible.size
             val pos = visible[index]
-            if (now - checked.getOrDefault(pos, Long.MIN_VALUE / 2) < 10000 || pending.values.any { it.pos == pos }) continue
+            if (now - checked.getOrDefault(pos, Long.MIN_VALUE / 2) < 10000 ||
+                pending.values.any { it.pos == pos }
+            ) {
+                continue
+            }
+            if (pos in cacheReads) return
             requestCursor = (index + 1) % visible.size
             val id = ++sequence
-            val request = Pending(pos, now)
+            val request = Pending(pos, now, pos in loaded)
             pending[id] = request
             nextRequest = now + 150
-            val memory = loaded[pos]
-            submit({
-                // Preserve the decoded snapshot on conditional refreshes; Xaero uses its identity to avoid rebuilding textures.
-                val entry = memory ?: cache.read(CacheIdentity.of(session), pos).orElse(null)
-                clientThread(
-                    Runnable {
-                        if (!active(session, id, request)) return@Runnable
-                        entry?.let {
-                            loaded[pos] = it
-                            display.tile(pos, it.tile)
-                        }
-                        sender(Wire.Request(session.session, id, pos, entry?.encoded?.hash ?: byteArrayOf()))
-                    },
-                )
-            }, {
-                if (active(session, id, request)) sender(Wire.Request(session.session, id, pos, byteArrayOf()))
-            })
+            sender(Wire.Request(session.session, id, pos, loaded[pos]?.encoded?.hash ?: byteArrayOf()))
             break
         }
     }
@@ -144,9 +197,10 @@ class MapSync(
                 sender(Wire.Ack(session.session, message.requestId))
                 checked[message.pos] = if (message.result == Wire.Result.RETRY) now - 9000 else now
                 if (message.result == Wire.Result.MISSING) {
-                    loaded.remove(message.pos)
+                    val previous = loaded.remove(message.pos)
+                    toDisplay.remove(message.pos)
                     display.missing(message.pos)
-                    submit({ cache.delete(CacheIdentity.of(session), message.pos) }, {})
+                    if (previous != null || request.cached) submit({ cache.delete(CacheIdentity.of(session), message.pos) }, {})
                 }
             }
             message is Wire.Part && message.session == session.session -> receivePart(message, session)
@@ -172,10 +226,7 @@ class MapSync(
                         pending.remove(part.requestId)
                         sender(Wire.Ack(session.session, part.requestId))
                         checked[part.pos] = System.currentTimeMillis()
-                        if (part.pos in visible) {
-                            loaded[part.pos] = TileCache.Entry(encoded, data)
-                            display.tile(part.pos, data)
-                        }
+                        remember(part.pos, TileCache.Entry(encoded, data))
                     },
                 )
             }, { fail(part.requestId, request, session) })
