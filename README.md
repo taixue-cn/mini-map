@@ -26,7 +26,7 @@ Use JDK 25:
 
 `./gradlew spotlessApply` formats Kotlin and Kotlin DSL. `kotlin.code.style=official` configures IDE defaults. Comments describe trust boundaries, threading and version-sensitive integration.
 
-`main` pushes and pull requests build both modules and smoke-test Paper 1.21.4 and 26.3. A `v*` tag publishes both jars, the provider SDK and SHA-256 checksums through GitHub Actions Release. Test fixture jars are excluded from releases.
+`main` pushes and pull requests build both modules and smoke-test Paper 1.21.4 and 26.3. A `v*` tag publishes both jars, the provider SDK and SHA-256 checksums through GitHub Actions Release. Both Paper smoke jobs load the server jar downloaded from that exact build artifact before release publication. Test fixture jars are excluded from releases.
 
 Both former repository histories are retained as ancestors of this monorepo. The v1 wire format and cache hashes remain compatible with the previously released Java alpha. Build paths and provider SDK distribution now belong here.
 

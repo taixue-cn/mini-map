@@ -8,6 +8,8 @@ p.add_argument('--java',default='java')
 p.add_argument('--directory',type=pathlib.Path,required=True)
 p.add_argument('--accept-eula',action='store_true')
 p.add_argument('--fixture',action='store_true')
+p.add_argument('--plugin',type=pathlib.Path,help='Exact released Paper jar to verify; defaults to the local development jar')
+p.add_argument('--fixture-plugin',type=pathlib.Path,help='Fixture jar matching the selected build version')
 p.add_argument('--hold',action='store_true')
 p.add_argument('--updates',action='store_true')
 p.add_argument('--without-plugin',action='store_true')
@@ -28,10 +30,13 @@ if a.reuse_runtime:
   source=a.reuse_runtime/name
   if source.is_dir():shutil.copytree(source,root/name)
 (root/'plugins').mkdir()
-if not a.without_plugin:shutil.copy2(project/'server/build/libs/mini-map-server-0.1.0.jar',root/'plugins')
-if a.fixture and not a.without_plugin:shutil.copy2(project/'server/build/libs/mini-map-server-0.1.0-fixture.jar',root/'plugins')
+if not a.without_plugin:shutil.copy2(a.plugin or project/'server/build/libs/mini-map-server-0.1.0.jar',root/'plugins')
+if a.fixture and not a.without_plugin:shutil.copy2(a.fixture_plugin or project/'server/build/libs/mini-map-server-0.1.0-fixture.jar',root/'plugins')
 for plugin in a.extra_plugin:shutil.copy2(plugin,root/'plugins'/plugin.name)
 if a.extra_config:shutil.copytree(a.extra_config,root,dirs_exist_ok=True)
+if not a.without_plugin:
+ selected=a.plugin or project/'server/build/libs/mini-map-server-0.1.0.jar'
+ (root/'tested-plugin.json').write_text(json.dumps({'file':selected.name,'sha256':hashlib.sha256(selected.read_bytes()).hexdigest(),'minecraft_version':a.version,'paper_build':build['id']},indent=2)+'\n')
 with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
 (root/'eula.txt').write_text('eula=true\n')
 (root/'server.properties').write_text(f'server-ip=127.0.0.1\nserver-port={port}\nonline-mode=false\nwhite-list=false\nenforce-whitelist=false\nspawn-protection=0\nview-distance=2\nsimulation-distance=2\nlevel-type=minecraft:flat\ngenerate-structures=false\nmax-players=2\n')
