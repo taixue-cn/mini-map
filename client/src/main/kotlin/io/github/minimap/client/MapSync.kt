@@ -44,6 +44,7 @@ class MapSync(
     private var open = false
     private var sequence = 0
     private var renderCursor = 0
+    private var requestCursor = 0
     private var nextRequest = 0L
     var offer: Wire.Offer? = null
         private set
@@ -62,6 +63,7 @@ class MapSync(
         loaded.clear()
         checked.clear()
         nextRequest = 0
+        requestCursor = 0
     }
 
     fun view(isOpen: Boolean, positions: List<TilePos>) {
@@ -77,7 +79,9 @@ class MapSync(
             loaded.clear()
             return
         }
-        visible = positions.take(1024)
+        val nextVisible = positions.take(1024)
+        if (visible != nextVisible) requestCursor = 0
+        visible = nextVisible
         val keep = visible.toSet()
         loaded.keys.retainAll(keep)
         checked.keys.retainAll(keep)
@@ -96,8 +100,12 @@ class MapSync(
             display.tile(entry.key, entry.value)
         }
         if (now < nextRequest || pending.size >= 4) return
-        for (pos in visible) {
+        // Continue around the view so refreshes cannot starve tiles farther from its center.
+        for (offset in visible.indices) {
+            val index = (requestCursor + offset) % visible.size
+            val pos = visible[index]
             if (now - checked.getOrDefault(pos, Long.MIN_VALUE / 2) < 10000 || pending.values.any { it.pos == pos }) continue
+            requestCursor = (index + 1) % visible.size
             val id = ++sequence
             val request = Pending(pos, now)
             pending[id] = request

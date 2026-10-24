@@ -114,4 +114,47 @@ class SessionTest {
             assertTrue(errors.isEmpty())
         }
     }
+
+    @Test
+    fun largeViewportIsFilledBeforeItsFirstTilesAreRefreshed() {
+        sync().use { sync ->
+            val session = offer("large-world")
+            val positions = List(128) { TilePos(it % 16, it / 16) }
+            sync.offer(session)
+            var requests = 0
+            for (index in positions.indices) {
+                // The GUI rebuilds an equal visible list on every tick.
+                sync.view(true, positions.toList())
+                val now = 10000L + index * 150
+                sync.tick(now)
+                pump { sent.filterIsInstance<Wire.Request>().size > requests }
+                requests++
+                val request = request()
+                assertEquals(positions[index], request.pos, "an expired near tile must not starve an unrequested visible tile")
+                sync.receive(Wire.Status(session.session, request.requestId, request.pos, Wire.Result.MISSING), now)
+            }
+            sync.tick(10000L + positions.size * 150)
+            pump { sent.filterIsInstance<Wire.Request>().size > requests }
+            assertEquals(positions.first(), request().pos)
+            assertTrue(errors.isEmpty())
+        }
+    }
+
+    @Test
+    fun panningStartsAtTheNewViewportCenter() {
+        sync().use { sync ->
+            val session = offer("panning-world")
+            sync.offer(session)
+            sync.view(true, List(4) { TilePos(it, 0) })
+            sync.tick(10000)
+            pump { sent.any { it is Wire.Request } }
+            val first = request()
+            sync.receive(Wire.Status(session.session, first.requestId, first.pos, Wire.Result.MISSING), 10000)
+            sync.view(true, List(4) { TilePos(100 + it, 100) })
+            sync.tick(10150)
+            pump { sent.filterIsInstance<Wire.Request>().size == 2 }
+            assertEquals(TilePos(100, 100), request().pos)
+            assertTrue(errors.isEmpty())
+        }
+    }
 }
