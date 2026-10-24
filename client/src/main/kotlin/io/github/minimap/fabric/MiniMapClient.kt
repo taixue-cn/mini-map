@@ -23,6 +23,8 @@ class MiniMapClient : ClientModInitializer {
         fun reset()
         fun open(): Boolean
         fun visible(): List<TilePos>
+        fun ownsCoarseRegion(region: Any): Boolean = false
+        fun ownsServerRegion(region: Any): Boolean = false
     }
 
     private var world: ClientLevel? = null
@@ -38,7 +40,7 @@ class MiniMapClient : ClientModInitializer {
             logger.info("MiniMap sync inactive: supported Xaero World Map 1.47.1 is not installed.")
             return
         }
-        bridge = XaeroBridge()
+        bridge = XaeroBridge().also { nativeBridge = it }
         sync = MapSync(
             ::send,
             { Minecraft.getInstance().execute(it) },
@@ -129,6 +131,14 @@ class MiniMapClient : ClientModInitializer {
     }
 
     companion object {
+        private var nativeBridge: Bridge? = null
+
+        @JvmStatic
+        fun ownsCoarseRegion(region: Any): Boolean = nativeBridge?.ownsCoarseRegion(region) == true
+
+        @JvmStatic
+        fun ownsServerRegion(region: Any): Boolean = nativeBridge?.ownsServerRegion(region) == true
+
         private val logger = LoggerFactory.getLogger("mini-map-client")
 
         @Volatile private var identity: CacheIdentity? = null

@@ -1,10 +1,13 @@
 package io.github.minimap.fixture
 
 import com.google.gson.JsonObject
+import io.github.minimap.client.ViewportTiles
 import io.github.minimap.fabric.MiniMapClient
+import io.github.minimap.fabric.mixin.GuiMapAccess
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.minecraft.client.Minecraft
+import net.minecraft.client.Screenshot
 import net.minecraft.client.gui.screens.ConnectScreen
 import net.minecraft.client.gui.screens.TitleScreen
 import net.minecraft.client.multiplayer.ServerData
@@ -23,6 +26,7 @@ class CoarseFixture : ClientModInitializer {
     private var detailed = false
     private var done = false
     private var coarseAt = 0L
+    private var captured = false
     override fun onInitializeClient() {
         ClientTickEvents.END_CLIENT_TICK.register { client ->
             if (done || ++ticks % 10 != 0) return@register
@@ -74,27 +78,40 @@ class CoarseFixture : ClientModInitializer {
         if (!detailed) {
             val level = processor.mapSaveLoad.mainTextureLevel
             if (level != 2) return
-            // This far corner lies more than 1024 blocks away from center: the former center cap excluded it.
-            val span = 64 shl level
-            val x = kotlin.math.floor((4000.0 - client.window.width / 0.195 / 2 + 64) / span).toInt()
-            val z = kotlin.math.floor((4000.0 - client.window.height / 0.195 / 2 + 64) / span).toInt()
-            val region = processor.getLeveledRegion(Int.MAX_VALUE, x shr 3, z shr 3, level) ?: return
-            val texture = region.getTexture(x and 7, z and 7) ?: return
+            val view = screen as GuiMapAccess
+            val positions = ViewportTiles.visible(
+                view.`minimap$cameraX`(),
+                view.`minimap$cameraZ`(),
+                client.window.width,
+                client.window.height,
+                view.`minimap$scale`(),
+                level,
+            )
+            var ready = 0
+            for (pos in positions) {
+                val region = processor.getLeveledRegion(Int.MAX_VALUE, pos.x shr 3, pos.z shr 3, level) ?: continue
+                if (!region.hasTextures()) continue
+                val texture = region.getTexture(pos.x and 7, pos.z and 7) ?: continue
+                if (texture.javaClass.simpleName == "ServerBranchTexture" && texture.isUploaded && texture.glColorTexture != null) ready++
+            }
             Files.writeString(
                 Path.of(System.getenv("MINIMAP_TEST_REPORT") + ".debug"),
-                "level=$level corner=$x,$z texture=${texture.javaClass.name} upload=${texture.isUploaded} gpu=${texture.glColorTexture != null}",
+                "level=$level ready=$ready/${positions.size} first=${positions.first()} last=${positions.last()} scale=${view.`minimap$scale`()} width=${client.window.width} height=${client.window.height}",
             )
-            if (texture.javaClass.simpleName != "ServerBranchTexture" || !texture.isUploaded || texture.glColorTexture == null) return
-            val pixels = texture.directColorBuffer ?: return
-            check(
-                (pixels.get(0).toInt() and 255) == 0xe0 && (pixels.get(1).toInt() and 255) == 0x40 &&
-                    (pixels.get(2).toInt() and 255) == 0x90,
-            )
+            if (ready != positions.size) return
             if (coarseAt == 0L) {
                 coarseAt = System.currentTimeMillis()
                 Files.writeString(Path.of(System.getenv("MINIMAP_TEST_REPORT") + ".coarse-ready"), "native coarse texture uploaded")
             }
-            if (System.currentTimeMillis() - coarseAt >= 2000) detailed = true
+            if (!captured && System.currentTimeMillis() - coarseAt >= 2000) {
+                captured = true
+                Screenshot.grab(client.gameDirectory, "coarse.png", client.gameRenderer.mainRenderTarget(), 1) {}
+            }
+            if (System.currentTimeMillis() - coarseAt >= 5000 &&
+                Files.exists(client.gameDirectory.toPath().resolve("screenshots/coarse.png"))
+            ) {
+                detailed = true
+            }
         } else {
             if (processor.mapSaveLoad.mainTextureLevel != 0) return
             val block = processor.getMapTile(Int.MAX_VALUE, 250, 250)?.getBlock(0, 0) ?: return

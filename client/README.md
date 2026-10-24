@@ -12,7 +12,7 @@ After entering a supported world, press **M**. The full-screen map downloads det
 
 Verified snapshots are restored from disk independently of network requests. Recent decoded views remain warm across panning and closing the map; refreshes keep the old image until a complete replacement passes its hash check. The client retains up to 2048 decoded tiles in memory, in addition to its disk cache.
 
-Committed server samples replace both unexplored and locally explored pixels while the current-world handshake is active. Local snapshots are displayed immediately, then conditionally revalidated against the server; matching hashes avoid downloads. Visible regions and up to 32 recent imported regions remain resident; native display textures can also be cached on disk. Imported placeholder blocks are excluded from native terrain saves even if Xaero's writer marks a mixed chunk for saving. Missing server tiles clear only imported pixels.
+Committed server samples replace both unexplored and locally explored pixels while the current-world handshake is active. Local snapshots are displayed immediately, then conditionally revalidated against the server; matching hashes avoid downloads. Visible regions and up to 32 recent imported regions remain resident; disk persistence uses the verified portable tile cache. Native texture cache writes are suppressed for imported regions to avoid saving a region while a batch is updating its GPU buffers. Imported placeholder blocks are excluded from native terrain saves even if Xaero's writer marks a mixed chunk for saving. Missing server tiles clear only imported pixels.
 
 ## Cache identity and data
 

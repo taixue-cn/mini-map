@@ -19,9 +19,23 @@ internal class XaeroBridge : MiniMapClient.Bridge {
     private val client = Minecraft.getInstance()
     private var owner: CacheIdentity? = null
     private val recentRegions = linkedMapOf<Pair<Int, Int>, MapRegion>()
+    private val coarseRegions = java.util.Collections.synchronizedSet(
+        java.util.Collections.newSetFromMap(java.util.WeakHashMap<BranchLeveledRegion, Boolean>()),
+    )
+
+    private val serverRegions = java.util.Collections.synchronizedSet(
+        java.util.Collections.newSetFromMap(java.util.WeakHashMap<Any, Boolean>()),
+    )
+
+    override fun ownsServerRegion(region: Any): Boolean = owner != null && owner == MiniMapClient.identity() && region in serverRegions
+
+    override fun ownsCoarseRegion(region: Any): Boolean =
+        region is BranchLeveledRegion && owner != null && owner == MiniMapClient.identity() && region in coarseRegions
 
     override fun reset() {
         recentRegions.clear()
+        coarseRegions.clear()
+        serverRegions.clear()
         owner = null
     }
 
@@ -98,10 +112,11 @@ internal class XaeroBridge : MiniMapClient.Bridge {
                 region.registerVisit()
                 if (!remove) {
                     maintainRecentRegions()
+                    serverRegions += region
                     val key = (pos.x shr 3) to (pos.z shr 3)
                     recentRegions.remove(key)
                     recentRegions[key] = region
-                    // Two full detailed views stay resident; older views still have native and portable disk caches.
+                    // Two detailed views stay resident; older views restore from the portable disk cache.
                     while (recentRegions.size > 32) recentRegions.remove(recentRegions.keys.first())
                 }
                 var chunk = region.getChunk(pos.x and 7, pos.z and 7)
@@ -147,8 +162,9 @@ internal class XaeroBridge : MiniMapClient.Bridge {
                     chunk.unincludeInSave()
                     region.setHasHadTerrain()
                     region.isAllCachePrepared = false
-                    region.setShouldCache(true, "MiniMap update")
-                    region.setRecacheHasBeenRequested(true, "MiniMap update")
+                    // Portable samples own disk persistence; native texture saves race batch GPU updates.
+                    region.setShouldCache(false, "MiniMap update")
+                    region.setRecacheHasBeenRequested(false, "MiniMap update")
                     chunk.updateBuffers(
                         processor,
                         processor.worldBlockTintProvider,
@@ -167,25 +183,34 @@ internal class XaeroBridge : MiniMapClient.Bridge {
 
     private fun coarse(processor: MapProcessor, pos: TilePos, data: TileData, remove: Boolean) {
         synchronized(processor) {
-            processor.getLeafMapRegion(Int.MAX_VALUE, (pos.x shr 3) shl pos.level, (pos.z shr 3) shl pos.level, !remove) ?: return
+            processor.getLeafMapRegion(Int.MAX_VALUE, (pos.x shl pos.level) shr 3, (pos.z shl pos.level) shr 3, !remove) ?: return
             val region = processor.getLeveledRegion(Int.MAX_VALUE, pos.x shr 3, pos.z shr 3, pos.level) as? BranchLeveledRegion ?: return
-            val old = region.getTexture(pos.x and 7, pos.z and 7)
-            if (remove && old !is ServerBranchTexture) return
-            if (old is ServerBranchTexture && old.source === data) return
-            val texture = if (old is ServerBranchTexture) {
-                old
-            } else {
-                ServerBranchTexture(region).also {
-                    old?.deleteTexturesAndBuffers()
-                    region.putTexture(pos.x and 7, pos.z and 7, it)
+            synchronized(region) {
+                maintainRecentRegions()
+                coarseRegions += region
+                serverRegions += region
+                if (!region.hasTextures()) {
+                    if (remove) return
+                    region.preCacheLoad()
                 }
+                val old = region.getTexture(pos.x and 7, pos.z and 7)
+                if (remove && old !is ServerBranchTexture) return
+                if (old is ServerBranchTexture && old.source === data) return
+                val texture = if (old is ServerBranchTexture) {
+                    old
+                } else {
+                    ServerBranchTexture(region).also {
+                        old?.deleteTexturesAndBuffers()
+                        region.putTexture(pos.x and 7, pos.z and 7, it)
+                    }
+                }
+                texture.update(data)
+                region.setLoaded(true)
+                region.confirmMetaLoaded()
+                region.setShouldCache(false, "MiniMap coarse update")
+                region.isAllCachePrepared = false
+                if (!processor.isProcessed(region)) processor.addToProcess(region)
             }
-            texture.update(data)
-            region.setLoaded(true)
-            region.confirmMetaLoaded()
-            region.setShouldCache(false, "MiniMap coarse update")
-            region.isAllCachePrepared = false
-            if (!processor.isProcessed(region)) processor.addToProcess(region)
         }
     }
 
