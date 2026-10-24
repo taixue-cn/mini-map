@@ -35,3 +35,24 @@ The separate fixture saved and flushed a sea-lantern plane outside spawn, reques
 Paper 26.3's actual Bukkit save folder and BlueMap's dimension folder matched after normalization, so this test required no production adapter change. The fixture pads its saved source/mask beyond the requested tile to avoid clipping upstream render cells. It is excluded from production jars and only opts in inside a freshly marked private workspace. Website skins/metrics and the public web server are disabled. No PostgreSQL, MinIO, business world or additional storage service is used.
 
 This verifies the standard upstream/file-storage path, not the private MinIO-backed renderer or deployed permissions. The latter remains a separate required acceptance gate.
+
+## Actual committed-provider cache lifecycle — 2026-10-24
+
+The separate native fixture at `d35817a66ab9725926c82d1f7e27cb38c6083648` passed an actual saved-world,
+existing-PostgreSQL/MinIO provider integration on Paper 26.3 build 218 and Fabric/Xaero 1.47.1. All 4096 canonical
+samples, portable-cache samples and native RGBA pixels matched outside vanilla's loaded chunks. The production
+client's 42 classes and server's 1059 classes are byte-identical to the previously verified `c72f96a` distributions;
+no private storage format or test controls entered the shipped mods.
+
+Fourteen acknowledged client phases cover no requests before M, no requests after closing, known-hash UNCHANGED
+without tile bodies, actual saved-block color/height/light replacement, committed tile deletion and transparent/native
+cache removal, restored content, permission revocation during a delayed actual provider read, regrant, an unpublished
+world, return and warm cache reuse through a second entry address. No tile arrived after its session was revoked.
+Ordinary multiplayer without Xaero also passed with the new fixture Mixin installed.
+
+The initial uniform surface encoded to 22530 canonical bytes and 147 compressed body bytes; this is a fixture
+measurement, not a bandwidth promise for complex maps or the framed network total. Hashes remained exact after
+decompression. The client received no storage credentials. Ownership-checked test schema/bucket and generated
+configurations were removed; no storage service, database or role was created. Production IAM, deployed website
+permissions and large-server load/compression benchmarks remain separate gates. Local Spotless/15 JVM tests and
+Actions [40068983585](https://github.com/taixue-cn/mini-map/actions/runs/40068983585) passed, including both Paper smoke jobs.

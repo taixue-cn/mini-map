@@ -42,4 +42,11 @@ MINIMAP_TEST_JAVA=/path/to/java25/bin/java
 
 `MINIMAP_TEST_MODE=fallback` checks normal multiplayer without handshake; `MINIMAP_TEST_OMIT_XAERO=1` also omits Xaero dependencies. Use a fresh client directory per test.
 
+`MINIMAP_TEST_MODE=lifecycle` selects the file-driven native fixture. `MINIMAP_TEST_SCENARIO_DIR` must contain an
+`.mini-map-lifecycle` ownership marker. The external test harness atomically writes `client-command.json` with an increasing
+`sequence` and one of `idle`, `tile`, `missing`, `revoked`, `world` or `finish`. It waits for `client-observed.json` before changing
+server data or permissions, then for the matching `client-ack.json`. Assertions use tile `(10,10)` outside vanilla's loaded
+chunks, all 4096 native texture pixels and canonical/local-cache digests. The separate fixture Mixin observes actual protocol
+messages without replacing payloads or networking. These controls are excluded from release jars.
+
 `main` pushes and pull requests run builds/tests. Pushing a `v*` tag publishes the jar and SHA-256 checksums through GitHub Actions. Xaero jars are external dependencies and are not redistributed in this project.
