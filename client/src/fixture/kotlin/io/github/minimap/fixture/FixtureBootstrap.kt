@@ -10,7 +10,8 @@ class FixtureBootstrap : ClientModInitializer {
             FallbackFixture().onInitializeClient()
             return
         }
-        val fixture = Class.forName("io.github.minimap.fixture.ClientFixture").getDeclaredConstructor().newInstance()
+        val name = if (System.getenv("MINIMAP_TEST_MODE") == "lifecycle") "LifecycleFixture" else "ClientFixture"
+        val fixture = Class.forName("io.github.minimap.fixture.$name").getDeclaredConstructor().newInstance()
         (fixture as ClientModInitializer).onInitializeClient()
     }
 }
