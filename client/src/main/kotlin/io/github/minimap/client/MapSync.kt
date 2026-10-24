@@ -38,7 +38,7 @@ class MapSync(
         ThreadPoolExecutor.AbortPolicy(),
     )
     private val pending = mutableMapOf<Int, Pending>()
-    private val loaded = linkedMapOf<TilePos, TileData>()
+    private val loaded = linkedMapOf<TilePos, TileCache.Entry>()
     private val checked = mutableMapOf<TilePos, Long>()
     private var visible = emptyList<TilePos>()
     private var open = false
@@ -97,7 +97,7 @@ class MapSync(
         }
         if (loaded.isNotEmpty()) {
             val entry = loaded.entries.toList()[Math.floorMod(renderCursor++, loaded.size)]
-            display.tile(entry.key, entry.value)
+            display.tile(entry.key, entry.value.tile)
         }
         if (now < nextRequest || pending.size >= 4) return
         // Continue around the view so refreshes cannot starve tiles farther from its center.
@@ -110,13 +110,15 @@ class MapSync(
             val request = Pending(pos, now)
             pending[id] = request
             nextRequest = now + 150
+            val memory = loaded[pos]
             submit({
-                val entry = cache.read(CacheIdentity.of(session), pos).orElse(null)
+                // Preserve the decoded snapshot on conditional refreshes; Xaero uses its identity to avoid rebuilding textures.
+                val entry = memory ?: cache.read(CacheIdentity.of(session), pos).orElse(null)
                 clientThread(
                     Runnable {
                         if (!active(session, id, request)) return@Runnable
                         entry?.let {
-                            loaded[pos] = it.tile
+                            loaded[pos] = it
                             display.tile(pos, it.tile)
                         }
                         sender(Wire.Request(session.session, id, pos, entry?.encoded?.hash ?: byteArrayOf()))
@@ -171,7 +173,7 @@ class MapSync(
                         sender(Wire.Ack(session.session, part.requestId))
                         checked[part.pos] = System.currentTimeMillis()
                         if (part.pos in visible) {
-                            loaded[part.pos] = data
+                            loaded[part.pos] = TileCache.Entry(encoded, data)
                             display.tile(part.pos, data)
                         }
                     },

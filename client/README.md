@@ -10,6 +10,8 @@ Without a compatible Xaero World Map, the addon stays inactive. Without a server
 
 After entering a supported world, press **M**. The full-screen map downloads detailed tiles near the visible center. Panning changes the requested area; closing stops requests. A ten-second recheck compares hashes and updates changed/deleted tiles. The provider must already have rendered that area; this mod does not generate missing server maps.
 
+Chunks currently loaded by Minecraft keep Xaero's native exploration. Server samples fill unloaded chunks, and missing server tiles clear only imported pixels. Unchanged responses reuse the decoded snapshot without rebuilding native textures.
+
 ## Cache identity and data
 
 The server supplies a stable server ID, world ID and epoch. The addon hashes length-delimited IDs into safe paths, so different entry addresses reuse the same cache and equally named dimensions/worlds remain separate. `mini-map-cache/` stores verified, compressed canonical tiles, capped at approximately **512 MiB** with periodic eviction. Xaero's native cache uses a server-derived root and world/epoch sub-map after handshake; existing address-based caches are not migrated or deleted.
