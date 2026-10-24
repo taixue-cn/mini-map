@@ -1,0 +1,1 @@
+{"required":true,"package":"io.github.minimap.fixture.mixin","compatibilityLevel":"JAVA_25","client":["PacketProbeMixin"],"injectors":{"defaultRequire":1}}
