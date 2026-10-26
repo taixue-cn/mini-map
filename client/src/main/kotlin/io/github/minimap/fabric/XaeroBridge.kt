@@ -1,6 +1,7 @@
 package io.github.minimap.fabric
 
 import io.github.minimap.client.CacheIdentity
+import io.github.minimap.client.ViewportTiles
 import io.github.minimap.fabric.mixin.GuiMapAccess
 import io.github.minimap.protocol.TileData
 import io.github.minimap.protocol.TilePos
@@ -8,10 +9,10 @@ import net.minecraft.client.Minecraft
 import xaero.map.MapProcessor
 import xaero.map.WorldMapSession
 import xaero.map.gui.GuiMap
+import xaero.map.region.BranchLeveledRegion
 import xaero.map.region.MapTile
 import xaero.map.region.MapTileChunk
 import xaero.map.region.MapUpdateFastConfig
-import kotlin.math.floor
 
 internal class XaeroBridge : MiniMapClient.Bridge {
     private val client = Minecraft.getInstance()
@@ -38,33 +39,24 @@ internal class XaeroBridge : MiniMapClient.Bridge {
         val view = screen as GuiMapAccess
         val scale = view.`minimap$scale`()
         if (!scale.isFinite() || scale <= 0) return emptyList()
-        val halfX = client.window.width / scale / 2
-        val halfZ = client.window.height / scale / 2
-        val cameraX = view.`minimap$cameraX`()
-        val cameraZ = view.`minimap$cameraZ`()
-        val centerX = floor(cameraX / 64).toInt()
-        val centerZ = floor(cameraZ / 64).toInt()
-        // shortcut: v1 has no LOD; cap detailed requests to 32×32 tiles when zoomed out.
-        val minX = maxOf(centerX - 16, floor((cameraX - halfX) / 64).toInt())
-        val maxX = minOf(centerX + 15, floor((cameraX + halfX) / 64).toInt())
-        val minZ = maxOf(centerZ - 16, floor((cameraZ - halfZ) / 64).toInt())
-        val maxZ = minOf(centerZ + 15, floor((cameraZ + halfZ) / 64).toInt())
-        val result = mutableListOf<TilePos>()
-        for (z in minZ..maxZ) {
-            for (x in minX..maxX) {
-                try {
-                    result += TilePos(x, z)
-                } catch (_: IllegalArgumentException) {
-                    // A viewport can extend beyond the supported world boundary.
-                }
-            }
-        }
-        return result.sortedBy { (it.x - centerX).toLong() * (it.x - centerX) + (it.z - centerZ).toLong() * (it.z - centerZ) }
+        val processor = processor() ?: return emptyList()
+        return ViewportTiles.visible(
+            view.`minimap$cameraX`(),
+            view.`minimap$cameraZ`(),
+            client.window.width,
+            client.window.height,
+            scale,
+            processor.mapSaveLoad.mainTextureLevel.coerceIn(0, 3),
+        )
     }
 
     override fun tile(pos: TilePos, data: TileData) {
         val processor = processor() ?: return
         if (!current(processor)) return
+        if (pos.level > 0) {
+            coarse(processor, pos, data)
+            return
+        }
         if (owner != MiniMapClient.identity()) {
             owner = MiniMapClient.identity()
             imported.clear()
@@ -134,7 +126,39 @@ internal class XaeroBridge : MiniMapClient.Bridge {
         }
     }
 
+    private fun coarse(processor: MapProcessor, pos: TilePos, data: TileData) {
+        synchronized(processor) {
+            processor.getLeafMapRegion(Int.MAX_VALUE, (pos.x shl pos.level) shr 3, (pos.z shl pos.level) shr 3, true) ?: return
+            val region = processor.getLeveledRegion(Int.MAX_VALUE, pos.x shr 3, pos.z shr 3, pos.level) as? BranchLeveledRegion ?: return
+            val old = region.getTexture(pos.x and 7, pos.z and 7)
+            if (old is ServerBranchTexture && old.source === data) return
+            val texture = if (old is ServerBranchTexture) {
+                old
+            } else {
+                ServerBranchTexture(region).also {
+                    old?.deleteTexturesAndBuffers()
+                    region.putTexture(pos.x and 7, pos.z and 7, it)
+                }
+            }
+            texture.update(data)
+            region.setLoaded(true)
+            region.confirmMetaLoaded()
+            region.setShouldCache(false, "MiniMap coarse update")
+            region.isAllCachePrepared = false
+            if (!processor.isProcessed(region)) processor.addToProcess(region)
+        }
+    }
+
     override fun missing(pos: TilePos) {
+        if (pos.level > 0) {
+            val processor = processor() ?: return
+            if (!current(processor)) return
+            val region = processor.getLeveledRegion(Int.MAX_VALUE, pos.x shr 3, pos.z shr 3, pos.level) as? BranchLeveledRegion ?: return
+            if (region.getTexture(pos.x and 7, pos.z and 7) is ServerBranchTexture) {
+                coarse(processor, pos, TileData(IntArray(4096), IntArray(4096), ByteArray(4096)))
+            }
+            return
+        }
         val processor = processor() ?: return
         if (!current(processor)) return
         val region = processor.getLeafMapRegion(Int.MAX_VALUE, pos.x shr 3, pos.z shr 3, false) ?: return

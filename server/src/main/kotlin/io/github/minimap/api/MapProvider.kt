@@ -35,6 +35,38 @@ interface MapProvider {
     @Throws(IOException::class)
     fun read(map: MapRef, tileX: Int, tileZ: Int): Optional<SurfaceTile>
 
+    /** Coarse samples are optional for providers; the fallback preserves existing integrations. */
+    @Throws(IOException::class)
+    fun readScaled(map: MapRef, tileX: Int, tileZ: Int, level: Int): Optional<SurfaceTile> {
+        require(level in 0..3)
+        if (level == 0) return read(map, tileX, tileZ)
+        val step = 1 shl level
+        val colors = IntArray(4096)
+        val heights = IntArray(4096)
+        val lights = ByteArray(4096)
+        var present = false
+        for (z in 0 until step) {
+            for (x in 0 until step) {
+                val tile = read(map, tileX * step + x, tileZ * step + z).orElse(null) ?: continue
+                val sourceColors = tile.argb()
+                val sourceHeights = tile.height()
+                val sourceLights = tile.blockLight()
+                val side = 64 / step
+                for (pz in 0 until side) {
+                    for (px in 0 until side) {
+                        val source = pz * step * 64 + px * step
+                        val target = (z * side + pz) * 64 + x * side + px
+                        colors[target] = sourceColors[source]
+                        heights[target] = sourceHeights[source]
+                        lights[target] = sourceLights[source]
+                        present = present || sourceColors[source] ushr 24 != 0
+                    }
+                }
+            }
+        }
+        return if (present) Optional.of(SurfaceTile(colors, heights, lights)) else Optional.empty()
+    }
+
     /** 64×64 block samples, indexed by z * 64 + x. Copies protect publication from caller mutation. */
     class SurfaceTile(argb: IntArray, height: IntArray, blockLight: ByteArray) {
         private val colors = argb.clone()

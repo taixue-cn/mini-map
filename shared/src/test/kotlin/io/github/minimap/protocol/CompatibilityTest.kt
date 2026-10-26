@@ -35,8 +35,8 @@ class CompatibilityTest {
             "4d4d0001070123456789abcdef0123456789abcdef",
         )
         messages.zip(expected).forEach { (message, hex) ->
-            assertEquals(hex, HexFormat.of().formatHex(Wire.encode(message)))
-            assertEquals(hex, HexFormat.of().formatHex(Wire.encode(Wire.decode(HexFormat.of().parseHex(hex)))))
+            assertEquals(hex, HexFormat.of().formatHex(Wire.encode(message, 1)))
+            assertEquals(hex, HexFormat.of().formatHex(Wire.encode(Wire.decode(HexFormat.of().parseHex(hex)), 1)))
         }
     }
 

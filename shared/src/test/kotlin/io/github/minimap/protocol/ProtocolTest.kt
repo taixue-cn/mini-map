@@ -61,4 +61,24 @@ class ProtocolTest {
         assertThrows(IOException::class.java) { Wire.decode(ByteArray(Wire.MAX_FRAME + 1)) }
         assertThrows(IllegalArgumentException::class.java) { TilePos(Int.MAX_VALUE, 0) }
     }
+
+    @Test
+    fun batchKeepsEveryCoordinateAndChecksBoundsBeforeAllocation() {
+        val session = UUID.randomUUID()
+        val batch = Wire.BatchRequest(
+            session,
+            List(64) {
+                Wire.Request(session, it, TilePos(it - 32, -it, it % 4), ByteArray(32) { it.toByte() })
+            },
+        )
+        val wire = Wire.encode(batch)
+        assertTrue(wire.size < Wire.MAX_FRAME)
+        val decoded = Wire.decode(wire) as Wire.BatchRequest
+        assertEquals(batch.requests.map { it.pos }, decoded.requests.map { it.pos })
+        assertEquals(batch.requests.map { it.requestId }, decoded.requests.map { it.requestId })
+        assertThrows(IllegalArgumentException::class.java) { Wire.BatchRequest(session, batch.requests + batch.requests.first()) }
+        assertThrows(IllegalArgumentException::class.java) { TilePos(0, 0, 4) }
+        assertThrows(IOException::class.java) { Wire.encode(batch, 1) }
+        for (size in 0 until wire.size) assertThrows(IOException::class.java) { Wire.decode(wire.copyOf(size)) }
+    }
 }

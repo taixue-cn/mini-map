@@ -33,7 +33,7 @@ class MapSync(
         1,
         0,
         TimeUnit.SECONDS,
-        ArrayBlockingQueue(16),
+        ArrayBlockingQueue(256),
         { action -> Thread(action, "minimap-cache").apply { isDaemon = true } },
         ThreadPoolExecutor.AbortPolicy(),
     )
@@ -45,7 +45,6 @@ class MapSync(
     private var sequence = 0
     private var renderCursor = 0
     private var requestCursor = 0
-    private var nextRequest = 0L
     var offer: Wire.Offer? = null
         private set
 
@@ -62,7 +61,6 @@ class MapSync(
         pending.clear()
         loaded.clear()
         checked.clear()
-        nextRequest = 0
         requestCursor = 0
     }
 
@@ -79,18 +77,23 @@ class MapSync(
             loaded.clear()
             return
         }
-        val nextVisible = positions.take(1024)
+        val nextVisible = positions
         if (visible != nextVisible) requestCursor = 0
         visible = nextVisible
         val keep = visible.toSet()
         loaded.keys.retainAll(keep)
         checked.keys.retainAll(keep)
+        val abandoned = pending.filterValues { it.pos !in keep }.keys.toList()
+        for (id in abandoned) {
+            pending.remove(id)
+            sender(Wire.Ack(session.session, id))
+        }
     }
 
     fun tick(now: Long) {
         val session = offer ?: return
         if (!open) return
-        val expired = pending.filterValues { now - it.start > 20000 }.keys.toList()
+        val expired = pending.filterValues { now - it.start > 125000 }.keys.toList()
         for (id in expired) {
             sender(Wire.Ack(session.session, id))
             pending.remove(id)
@@ -99,34 +102,45 @@ class MapSync(
             val entry = loaded.entries.toList()[Math.floorMod(renderCursor++, loaded.size)]
             display.tile(entry.key, entry.value)
         }
-        if (now < nextRequest || pending.size >= 4) return
-        // Continue around the view so refreshes cannot starve tiles farther from its center.
+        if (pending.size >= Wire.MAX_PENDING || visible.isEmpty()) return
+        val requests = mutableListOf<Wire.Request>()
+        val waiting = pending.values.mapTo(mutableSetOf()) { it.pos }
+        val limit = minOf(Wire.MAX_BATCH, Wire.MAX_PENDING - pending.size)
+        // Fill unseen terrain before spending request slots on revalidation.
+        val fresh = visible.any { it !in checked && it !in waiting }
         for (offset in visible.indices) {
             val index = (requestCursor + offset) % visible.size
             val pos = visible[index]
-            if (now - checked.getOrDefault(pos, Long.MIN_VALUE / 2) < 10000 || pending.values.any { it.pos == pos }) continue
-            requestCursor = (index + 1) % visible.size
+            if (pos in waiting || (fresh && pos in checked) || now - checked.getOrDefault(pos, Long.MIN_VALUE / 2) < 10000) continue
             val id = ++sequence
-            val request = Pending(pos, now)
-            pending[id] = request
-            nextRequest = now + 150
-            submit({
-                val entry = cache.read(CacheIdentity.of(session), pos).orElse(null)
-                clientThread(
-                    Runnable {
-                        if (!active(session, id, request)) return@Runnable
-                        entry?.let {
-                            loaded[pos] = it.tile
-                            display.tile(pos, it.tile)
-                        }
-                        sender(Wire.Request(session.session, id, pos, entry?.encoded?.hash ?: byteArrayOf()))
-                    },
-                )
-            }, {
-                if (active(session, id, request)) sender(Wire.Request(session.session, id, pos, byteArrayOf()))
-            })
-            break
+            pending[id] = Pending(pos, now)
+            requests += Wire.Request(session.session, id, pos, byteArrayOf())
+            if (requests.size == limit) {
+                requestCursor = (index + 1) % visible.size
+                break
+            }
         }
+        if (requests.isEmpty()) return
+        submit({
+            val entries = requests.map { it to cache.read(CacheIdentity.of(session), it.pos).orElse(null) }
+            clientThread(
+                Runnable {
+                    val active = entries.mapNotNull { (request, entry) ->
+                        val pending = pending[request.requestId] ?: return@mapNotNull null
+                        if (!active(session, request.requestId, pending)) return@mapNotNull null
+                        entry?.let {
+                            loaded[request.pos] = it.tile
+                            display.tile(request.pos, it.tile)
+                        }
+                        request.copy(knownHash = entry?.encoded?.hash ?: byteArrayOf())
+                    }
+                    if (active.isNotEmpty()) sender(Wire.BatchRequest(session.session, active))
+                },
+            )
+        }, {
+            val active = requests.filter { pending[it.requestId]?.let { request -> active(session, it.requestId, request) } == true }
+            if (active.isNotEmpty()) sender(Wire.BatchRequest(session.session, active))
+        })
     }
 
     private fun active(session: Wire.Offer, id: Int, request: Pending): Boolean = open && offer === session && pending[id] === request
